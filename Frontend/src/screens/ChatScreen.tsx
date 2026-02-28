@@ -28,8 +28,6 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
     const [isLoading, setIsLoading] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
-    const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
     useEffect(() => {
         // Scroll to bottom when messages change
         if (messages.length > 0) {
@@ -39,10 +37,6 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
 
     const sendMessage = async () => {
         if (!inputText.trim()) return;
-        if (!apiKey) {
-            alert('Please set EXPO_PUBLIC_OPENAI_API_KEY in your .env file');
-            return;
-        }
 
         const userMessage: Message = {
             id: Date.now().toString(),
@@ -55,39 +49,15 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
         setIsLoading(true);
 
         try {
-            const conversationHistory = messages.map((msg) => ({
-                role: msg.role,
-                content: msg.text,
-            }));
+            // Simulate a response delay
+            await new Promise((resolve) => setTimeout(resolve, 1000));
 
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify({
-                    model: 'gpt-4o-mini',
-                    messages: [
-                        { role: 'system', content: 'You are Arixa, an AI fitness trainer.' },
-                        ...conversationHistory,
-                        { role: 'user', content: userMessage.text },
-                    ],
-                }),
-            });
-
-            const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error.message);
-            }
-
-            const aiResponse = data.choices[0].message.content;
+            const placeholderResponse = 'This feature is coming soon! Chat integration with Arixa AI will be available in the next update.';
 
             const aiMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                text: aiResponse,
+                text: placeholderResponse,
             };
 
             setMessages((prev) => [...prev, aiMessage]);

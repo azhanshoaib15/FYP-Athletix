@@ -1,68 +1,65 @@
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-export interface UserData {
-    name: string;
-    email: string;
-    gender: 'Male' | 'Female' | null;
-    age: string;
-    height: string;
-    weight: string;
-    fitnessGoal: 'Lose Weight' | 'Build Muscle' | 'Stay Fit' | 'Improve Endurance' | null;
-}
+import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 interface UserState {
-    userData: UserData;
-    isAuthenticated: boolean;
+    accessToken: string | null;
+    refreshToken: string | null;
+    userId: number | null;
+    email: string | null;
+    username: string | null;
+    gender: string | null;
+    age: number | null;
+    height_cm: number | null;
+    weight_kg: number | null;
+    fitness_goal: string | null;
+    fitness_level: string | null;
+    isProfileComplete: boolean;
 }
 
 const initialState: UserState = {
-    userData: {
-        name: '',
-        email: '',
-        gender: null,
-        age: '',
-        height: '',
-        weight: '',
-        fitnessGoal: null,
-    },
-    isAuthenticated: false,
+    accessToken: null,
+    refreshToken: null,
+    userId: null,
+    email: null,
+    username: null,
+    gender: null,
+    age: null,
+    height_cm: null,
+    weight_kg: null,
+    fitness_goal: null,
+    fitness_level: null,
+    isProfileComplete: false,
 };
 
 const userSlice = createSlice({
-    name: 'user',
+    name: "user",
     initialState,
     reducers: {
-        setUserData: (state, action: PayloadAction<Partial<UserData>>) => {
-            state.userData = { ...state.userData, ...action.payload };
+        setUser: (state, action: PayloadAction<{ accessToken: string; refreshToken: string; userId: number; email: string; username: string }>) => {
+            state.accessToken = action.payload.accessToken;
+            state.refreshToken = action.payload.refreshToken;
+            state.userId = action.payload.userId;
+            state.email = action.payload.email;
+            state.username = action.payload.username;
         },
-        setGender: (state, action: PayloadAction<'Male' | 'Female'>) => {
-            state.userData.gender = action.payload;
+        setGender: (state, action: PayloadAction<string>) => {
+            state.gender = action.payload;
         },
-        setPersonalInfo: (state, action: PayloadAction<{ age: string; height: string; weight: string }>) => {
-            state.userData.age = action.payload.age;
-            state.userData.height = action.payload.height;
-            state.userData.weight = action.payload.weight;
+        setPersonalInfo: (state, action: PayloadAction<{ height_cm: number; weight_kg: number }>) => {
+            state.height_cm = action.payload.height_cm;
+            state.weight_kg = action.payload.weight_kg;
         },
-        setFitnessGoal: (state, action: PayloadAction<'Lose Weight' | 'Build Muscle' | 'Stay Fit' | 'Improve Endurance'>) => {
-            state.userData.fitnessGoal = action.payload;
+        setFitnessGoal: (state, action: PayloadAction<{ fitness_goal: string; fitness_level: string }>) => {
+            state.fitness_goal = action.payload.fitness_goal;
+            state.fitness_level = action.payload.fitness_level;
         },
-        setAuthentication: (state, action: PayloadAction<boolean>) => {
-            state.isAuthenticated = action.payload;
+        setProfileComplete: (state, action: PayloadAction<boolean>) => {
+            state.isProfileComplete = action.payload;
         },
-        clearUserData: (state) => {
-            state.userData = initialState.userData;
-            state.isAuthenticated = false;
+        logout: (state) => {
+            return initialState;
         },
     },
 });
 
-export const {
-    setUserData,
-    setGender,
-    setPersonalInfo,
-    setFitnessGoal,
-    setAuthentication,
-    clearUserData,
-} = userSlice.actions;
-
+export const { setUser, setGender, setPersonalInfo, setFitnessGoal, setProfileComplete, logout } = userSlice.actions;
 export default userSlice.reducer;

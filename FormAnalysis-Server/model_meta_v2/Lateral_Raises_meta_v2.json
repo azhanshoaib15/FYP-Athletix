@@ -1,0 +1,10 @@
+{
+  "exercise": "Lateral Raises",
+  "feature_dim": 124,
+  "n_samples_original": 31,
+  "n_samples_augmented": 217,
+  "cv_accuracy_mean": 0.9446088794926004,
+  "cv_accuracy_std": 0.023682893759903546,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Lateral_Raises_xgb_v2.json"
+}

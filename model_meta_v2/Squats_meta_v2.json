@@ -1,0 +1,10 @@
+{
+  "exercise": "Squats",
+  "feature_dim": 124,
+  "n_samples_original": 26,
+  "n_samples_augmented": 182,
+  "cv_accuracy_mean": 0.961861861861862,
+  "cv_accuracy_std": 0.03258777169069197,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Squats_xgb_v2.json"
+}

@@ -1,0 +1,10 @@
+{
+  "exercise": "Tricep Dips",
+  "feature_dim": 124,
+  "n_samples_original": 17,
+  "n_samples_augmented": 119,
+  "cv_accuracy_mean": 0.975,
+  "cv_accuracy_std": 0.03333333333333334,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Tricep_Dips_xgb_v2.json"
+}

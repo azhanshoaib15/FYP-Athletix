@@ -1,0 +1,10 @@
+{
+  "exercise": "Bench Press",
+  "feature_dim": 124,
+  "n_samples_original": 22,
+  "n_samples_augmented": 154,
+  "cv_accuracy_mean": 0.9802150537634409,
+  "cv_accuracy_std": 0.026562404570571196,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Bench_Press_xgb_v2.json"
+}

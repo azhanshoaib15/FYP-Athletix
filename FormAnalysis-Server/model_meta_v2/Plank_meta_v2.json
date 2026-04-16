@@ -1,0 +1,10 @@
+{
+  "exercise": "Plank",
+  "feature_dim": 124,
+  "n_samples_original": 23,
+  "n_samples_augmented": 161,
+  "cv_accuracy_mean": 0.9625,
+  "cv_accuracy_std": 0.036443449342783124,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Plank_xgb_v2.json"
+}

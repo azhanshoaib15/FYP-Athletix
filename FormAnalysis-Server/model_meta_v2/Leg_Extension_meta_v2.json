@@ -1,0 +1,10 @@
+{
+  "exercise": "Leg Extension",
+  "feature_dim": 124,
+  "n_samples_original": 12,
+  "n_samples_augmented": 84,
+  "cv_accuracy_mean": 0.9389705882352942,
+  "cv_accuracy_std": 0.06848900601291187,
+  "n_folds": 5,
+  "model_path": "/content/drive/MyDrive/FormAnalysis/models_v2/Leg_Extension_xgb_v2.json"
+}

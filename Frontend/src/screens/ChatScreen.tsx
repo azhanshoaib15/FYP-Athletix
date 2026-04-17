@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, SafeAreaVi
 import { useSelector } from "react-redux";
 import type { RootState } from "../store/store";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://10.0.2.2:8000";
+const API_URL = "https://fyp-athletix-production.up.railway.app";
 
 export default function ChatScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
     const [messages, setMessages] = useState<any[]>([]);

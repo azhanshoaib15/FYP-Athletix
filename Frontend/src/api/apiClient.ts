@@ -1,10 +1,7 @@
 import { Platform } from "react-native";
 const getApiUrl = () => {
-    if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-    if (Platform.OS === "android") return "http://10.0.2.2:8000";
-    return "http://localhost:8000";
-};
-const API_URL = getApiUrl();
+    return "https://fyp-athletix-production.up.railway.app";
+};const API_URL = getApiUrl();
 class ApiError extends Error {
     status: number;
     constructor(message: string, status: number) { super(message); this.status = status; }

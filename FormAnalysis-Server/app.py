@@ -1,19 +1,24 @@
 """
-app.py  ──  Form Analysis Inference Server v2
+app.py  --  Form Analysis Inference Server v2
 ---------------------------------------------
 Endpoints:
-  POST /live/check    → send latest frame + recent frames, get camera status + rep count + live form
-  POST /live/finish   → end session, get full analysis with body part breakdown
-  POST /analyze/video → upload video file (non-live path)
-  GET  /exercises     → list supported exercises
-  GET  /health        → health check
+  POST /live/check    -> send latest frame + recent frames, get camera status + rep count + live form
+  POST /live/finish   -> end session, get full analysis with body part breakdown
+  POST /analyze/video -> upload video file (non-live path)
+  GET  /exercises     -> list supported exercises
+  GET  /health        -> health check
 
 Run:
   pip install -r requirements.txt
   python app.py
 """
 
-import os, json, tempfile, base64, logging
+import os
+import json
+import tempfile
+import base64
+import logging
+import xgboost as xgb
 from pathlib import Path
 from typing import Optional, List
 
@@ -33,20 +38,20 @@ from body_analysis import analyze_body_parts
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Config ────────────────────────────────────────────────────────────────────
-MODELS_DIR = os.getenv("MODELS_DIR",  "./models_v2")
-META_DIR   = os.getenv("META_DIR",    "./model_meta_v2")
+# -- Config -------------------------------------------------------------------
+MODELS_DIR = os.getenv("MODELS_DIR", "./models_v2")
+META_DIR   = os.getenv("META_DIR",   "./model_meta_v2")
 MANIFEST   = os.path.join(META_DIR, "manifest.json")
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# -- App ----------------------------------------------------------------------
 app = FastAPI(title="Form Analysis API", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
-# ── Model registry ────────────────────────────────────────────────────────────
+# -- Model registry -----------------------------------------------------------
 class ModelRegistry:
     def __init__(self):
-        self.models: dict[str, xgb.Booster] = {}
+        self.models: dict = {}
         self.manifest: dict = {}
         self._load()
 
@@ -61,7 +66,6 @@ class ModelRegistry:
             if not os.path.exists(model_path):
                 logger.warning(f"Missing: {model_path}")
                 continue
-            import xgboost as xgb
             clf = xgb.Booster()
             clf.load_model(model_path)
             self.models[exercise] = clf
@@ -71,26 +75,27 @@ class ModelRegistry:
     def predict(self, exercise: str, feat_vec: np.ndarray) -> dict:
         if exercise not in self.models:
             return {"prediction": "unknown", "confidence": 0.0,
-                "correct_prob": 0.5, "incorrect_prob": 0.5}
+                    "correct_prob": 0.5, "incorrect_prob": 0.5}
         booster = self.models[exercise]
         dmat = xgb.DMatrix(feat_vec[np.newaxis, :])
         prob_correct = float(booster.predict(dmat)[0])
         prob = [1 - prob_correct, prob_correct]
         pred = int(prob_correct >= 0.5)
         return {
-            "prediction":     "correct" if pred == 1 else "incorrect",
-            "confidence":     float(round(max(prob), 3)),
-            "correct_prob":   float(round(prob[1], 3)),
+            "prediction":    "correct" if pred == 1 else "incorrect",
+            "confidence":    float(round(max(prob), 3)),
+            "correct_prob":  float(round(prob[1], 3)),
             "incorrect_prob": float(round(prob[0], 3)),
         }
 
 registry = ModelRegistry()
 
-# ── MediaPipe ─────────────────────────────────────────────────────────────────
+# -- MediaPipe ----------------------------------------------------------------
 mp_pose = mp.solutions.pose
 
+
 def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
-    """Decode one base64 frame → (132,) keypoints. Returns None on failure."""
+    """Decode one base64 frame -> (132,) keypoints. Returns None on failure."""
     try:
         img_bytes = base64.b64decode(b64)
         nparr     = np.frombuffer(img_bytes, np.uint8)
@@ -111,8 +116,9 @@ def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
         logger.warning(f"Frame decode error: {e}")
         return None
 
+
 def frames_to_sequence(frames_b64: List[str]) -> np.ndarray:
-    """Convert list of base64 frames → (frames, 132) sequence."""
+    """Convert list of base64 frames -> (frames, 132) sequence."""
     results = []
     with mp_pose.Pose(static_image_mode=True, model_complexity=1,
                       min_detection_confidence=0.45) as pose:
@@ -140,6 +146,7 @@ def frames_to_sequence(frames_b64: List[str]) -> np.ndarray:
         return np.zeros((1, 132), dtype=np.float32)
     return np.stack(results)
 
+
 def extract_keypoints_from_video(video_path: str) -> np.ndarray:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -166,7 +173,7 @@ def extract_keypoints_from_video(video_path: str) -> np.ndarray:
     return np.stack(frames)
 
 
-# ── Request / Response models ─────────────────────────────────────────────────
+# -- Request / Response models ------------------------------------------------
 
 class LiveCheckRequest(BaseModel):
     exercise: str
@@ -212,7 +219,7 @@ class FinishResponse(BaseModel):
     feedback:         str
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 def build_finish_feedback(exercise, form, confidence, issues, reps):
     verdict = "good form" if form == "correct" else "some form issues"
@@ -225,7 +232,7 @@ def build_finish_feedback(exercise, form, confidence, issues, reps):
     return base
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# -- Endpoints ----------------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -259,7 +266,7 @@ async def live_check(req: LiveCheckRequest):
         cam = validate_camera_frame(latest_kp, req.exercise)
     else:
         cam = CameraStatus(status="low_light",
-                           message="Can't detect pose — check lighting",
+                           message="Can't detect pose - check lighting",
                            color="red", ready=False)
 
     reps_in_window = 0
@@ -290,10 +297,9 @@ async def live_check(req: LiveCheckRequest):
 
 @app.post("/live/finish", response_model=FinishResponse)
 async def live_finish(req: FinishRequest):
-    """End of session — full analysis on all accumulated keypoints."""
-    if len(req.all_keypoints) < 20:
-        raise HTTPException(422, "Need at least 20 frames. "
-                                  "Hold the exercise longer and try again.")
+    """End of session - full analysis on all accumulated keypoints."""
+    if len(req.all_keypoints) < 5:
+        raise HTTPException(422, "Need at least 5 frames. Hold the exercise longer and try again.")
 
     seq = np.array(req.all_keypoints, dtype=np.float32)
     if seq.shape[1] != 132:

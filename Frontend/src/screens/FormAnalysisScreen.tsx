@@ -2,36 +2,89 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-const FORM_ANALYSIS_URL = process.env.EXPO_PUBLIC_FORM_ANALYSIS_URL || 'https://desirable-playfulness-production-a1dd.up.railway.app';
+const FORM_ANALYSIS_URL = 'https://desirable-playfulness-production-a1dd.up.railway.app';
 
 interface FormAnalysisProps {
     onNavigate: (screen: 'display' | 'signin' | 'signup' | 'dashboard' | 'gender' | 'verification' | 'personalinfo' | 'fitnessgoal' | 'settings' | 'formAnalysis') => void;
 }
+
+const EXERCISES = [
+    'Squats', 'PushUp', 'Bench Press', 'Bicep curl', 'Lunges',
+    'Plank', 'Pull Ups', 'Shoulder press', 'Lat Pulldown', 'Tricep Dips',
+    'Leg Press', 'Leg Extension', 'Leg Raises', 'Chest Fly', 'BackRows',
+    'Lateral Raises', 'Incline beanch Press', 'Tricep pushdown'
+];
 
 export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
     const [permission, requestPermission] = useCameraPermissions();
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [result, setResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
+    const [selectedExercise, setSelectedExercise] = useState('Squats');
+    const [showExercises, setShowExercises] = useState(false);
+    const [reps, setReps] = useState(0);
+    const [formStatus, setFormStatus] = useState('');
+    const [isLive, setIsLive] = useState(false);
     const cameraRef = useRef<any>(null);
+    const intervalRef = useRef<any>(null);
+    const framesRef = useRef<string[]>([]);
+    const repsRef = useRef(0);
 
-    const analyzeForm = async () => {
+    const startLiveSession = async () => {
         if (!cameraRef.current) return;
-        setIsAnalyzing(true);
+        setIsLive(true);
         setError(null);
         setResult(null);
+        setReps(0);
+        repsRef.current = 0;
+        framesRef.current = [];
+
+        intervalRef.current = setInterval(async () => {
+            try {
+                const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.3 });
+                const frame = photo.base64;
+                framesRef.current.push(frame);
+                if (framesRef.current.length > 10) framesRef.current = framesRef.current.slice(-10);
+
+                const response = await fetch(`${FORM_ANALYSIS_URL}/live/check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        exercise: selectedExercise,
+                        latest_frame_b64: frame,
+                        recent_frames_b64: framesRef.current,
+                        total_reps_so_far: repsRef.current,
+                    }),
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    repsRef.current += data.reps_in_window || 0;
+                    setReps(repsRef.current);
+                    setFormStatus(data.form_status || '');
+                }
+            } catch (e) { }
+        }, 1000);
+    };
+
+    const stopLiveSession = async () => {
+        clearInterval(intervalRef.current);
+        setIsLive(false);
+        setIsAnalyzing(true);
         try {
-            const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.5 });
-            const response = await fetch(`${FORM_ANALYSIS_URL}/analyze`, {
+            const response = await fetch(`${FORM_ANALYSIS_URL}/live/finish`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: photo.base64 }),
+                body: JSON.stringify({
+                    exercise: selectedExercise,
+                    all_keypoints: [],
+                }),
             });
-            if (!response.ok) throw new Error(`Server error: ${response.status}`);
-            const data = await response.json();
-            setResult(data);
+            if (response.ok) {
+                const data = await response.json();
+                setResult(data);
+            }
         } catch (e: any) {
-            setError(e.message || 'Analysis failed');
+            setError('Analysis failed');
         } finally {
             setIsAnalyzing(false);
         }
@@ -57,14 +110,41 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
         <View style={styles.container}>
             <CameraView style={styles.camera} facing="back" ref={cameraRef}>
                 <View style={styles.overlay}>
-                    <TouchableOpacity style={styles.backButton} onPress={() => onNavigate('dashboard')}>
+                    <TouchableOpacity style={styles.backButton} onPress={() => { clearInterval(intervalRef.current); onNavigate('dashboard'); }}>
                         <Text style={styles.text}>← Back</Text>
                     </TouchableOpacity>
 
-                    {result && (
+                    <TouchableOpacity style={styles.exerciseSelector} onPress={() => setShowExercises(!showExercises)}>
+                        <Text style={styles.exerciseSelectorText}>Exercise: {selectedExercise} ▼</Text>
+                    </TouchableOpacity>
+
+                    {showExercises && (
+                        <ScrollView style={styles.exerciseList}>
+                            {EXERCISES.map(ex => (
+                                <TouchableOpacity key={ex} style={styles.exerciseItem} onPress={() => { setSelectedExercise(ex); setShowExercises(false); }}>
+                                    <Text style={styles.exerciseItemText}>{ex}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    )}
+
+                    {isLive && (
+                        <View style={styles.liveStats}>
+                            <Text style={styles.repsText}>Reps: {reps}</Text>
+                            <Text style={[styles.formText, { color: formStatus === 'correct' ? '#00FF00' : '#FF6600' }]}>
+                                Form: {formStatus || 'detecting...'}
+                            </Text>
+                        </View>
+                    )}
+
+                    {result && !isLive && (
                         <ScrollView style={styles.resultContainer}>
-                            <Text style={styles.resultTitle}>Analysis Result</Text>
-                            <Text style={styles.resultText}>{JSON.stringify(result, null, 2)}</Text>
+                            <Text style={styles.resultTitle}>Session Complete!</Text>
+                            <Text style={styles.resultText}>Exercise: {result.exercise}</Text>
+                            <Text style={styles.resultText}>Total Reps: {result.total_reps}</Text>
+                            <Text style={styles.resultText}>Overall Form: {result.overall_form}</Text>
+                            <Text style={styles.resultText}>Summary: {result.summary}</Text>
+                            <Text style={styles.resultText}>Feedback: {result.feedback}</Text>
                         </ScrollView>
                     )}
 
@@ -74,17 +154,23 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </View>
                     )}
 
-                    <TouchableOpacity
-                        style={[styles.analyzeButton, isAnalyzing && styles.analyzeButtonDisabled]}
-                        onPress={analyzeForm}
-                        disabled={isAnalyzing}
-                    >
-                        {isAnalyzing ? (
-                            <ActivityIndicator color="#FFFFFF" />
-                        ) : (
-                            <Text style={styles.analyzeButtonText}>Analyze Form</Text>
-                        )}
-                    </TouchableOpacity>
+                    {isAnalyzing && (
+                        <View style={styles.analyzingContainer}>
+                            <ActivityIndicator color="#FFFFFF" size="large" />
+                            <Text style={styles.analyzingText}>Analyzing your session...</Text>
+                        </View>
+                    )}
+
+                    {!isAnalyzing && (
+                        <TouchableOpacity
+                            style={[styles.analyzeButton, isLive ? styles.stopButton : styles.startButton]}
+                            onPress={isLive ? stopLiveSession : startLiveSession}
+                        >
+                            <Text style={styles.analyzeButtonText}>
+                                {isLive ? '⏹ Stop & Analyze' : '▶ Start Session'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </CameraView>
         </View>
@@ -102,12 +188,23 @@ const styles = StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'space-between', padding: 20 },
     backButton: { backgroundColor: '#501313', padding: 10, borderRadius: 20, alignSelf: 'flex-start', marginTop: 40 },
     text: { fontSize: 16, fontWeight: 'bold', color: 'white' },
-    analyzeButton: { backgroundColor: '#8B2F3F', paddingVertical: 15, borderRadius: 30, alignItems: 'center', marginBottom: 30 },
-    analyzeButtonDisabled: { backgroundColor: '#555555' },
-    analyzeButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-    resultContainer: { backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 10, padding: 10, maxHeight: 300 },
-    resultTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginBottom: 5 },
-    resultText: { color: '#CCCCCC', fontSize: 12 },
+    exerciseSelector: { backgroundColor: 'rgba(0,0,0,0.7)', padding: 10, borderRadius: 10, alignSelf: 'center' },
+    exerciseSelectorText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    exerciseList: { backgroundColor: 'rgba(0,0,0,0.9)', borderRadius: 10, maxHeight: 200, alignSelf: 'center', width: '80%' },
+    exerciseItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#333' },
+    exerciseItemText: { color: '#FFFFFF', fontSize: 14 },
+    liveStats: { backgroundColor: 'rgba(0,0,0,0.7)', padding: 15, borderRadius: 10, alignSelf: 'center', alignItems: 'center' },
+    repsText: { color: '#FFFFFF', fontSize: 32, fontWeight: 'bold' },
+    formText: { fontSize: 18, fontWeight: '600', marginTop: 5 },
+    resultContainer: { backgroundColor: 'rgba(0,0,0,0.8)', borderRadius: 10, padding: 15, maxHeight: 250 },
+    resultTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 10 },
+    resultText: { color: '#CCCCCC', fontSize: 14, marginBottom: 5 },
     errorContainer: { backgroundColor: 'rgba(139,47,63,0.8)', borderRadius: 10, padding: 10 },
     errorText: { color: '#FFFFFF', fontSize: 14 },
+    analyzingContainer: { alignItems: 'center', padding: 20 },
+    analyzingText: { color: '#FFFFFF', fontSize: 16, marginTop: 10 },
+    analyzeButton: { paddingVertical: 15, borderRadius: 30, alignItems: 'center', marginBottom: 30 },
+    startButton: { backgroundColor: '#8B2F3F' },
+    stopButton: { backgroundColor: '#B22222' },
+    analyzeButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
 });

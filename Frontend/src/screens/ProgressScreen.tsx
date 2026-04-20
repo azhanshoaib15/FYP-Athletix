@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { VictoryAxis, VictoryBar, VictoryChart, VictoryLine, VictoryPie, VictoryTheme } from 'victory-native';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store/store';
 
 const screenWidth = Dimensions.get('window').width;
 const API_URL = 'https://fyp-athletix-production.up.railway.app';
-
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 interface ProgressScreenProps {
     onNavigate: (screen: any) => void;
@@ -20,33 +18,35 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
     const [profile, setProfile] = useState<any>(null);
     const [latest, setLatest] = useState<any>(null);
     const [sessions, setSessions] = useState<any[]>([]);
-    const [logWeight, setLogWeight] = useState(false);
+    const [showLogForm, setShowLogForm] = useState(false);
+    const [inputWeight, setInputWeight] = useState('');
+    const [inputBodyFat, setInputBodyFat] = useState('');
+    const [logging, setLogging] = useState(false);
 
-    useEffect(() => {
-        fetchAllData();
-    }, []);
+    useEffect(() => { fetchAllData(); }, []);
 
     const fetchAllData = async () => {
         setLoading(true);
         try {
             const headers = { Authorization: `Bearer ${token}` };
-
             const [progressRes, profileRes, sessionsRes] = await Promise.all([
                 fetch(`${API_URL}/api/v1/progress/?limit=30`, { headers }),
                 fetch(`${API_URL}/api/v1/users/me/profile`, { headers }),
                 fetch(`${API_URL}/api/v1/workouts/sessions`, { headers }),
             ]);
-
             const progressData = await progressRes.json();
             const profileData = await profileRes.json();
             const sessionsData = await sessionsRes.json();
 
-            setProgress(Array.isArray(progressData) ? progressData : []);
+            const prog = Array.isArray(progressData) ? progressData : [];
+            setProgress(prog);
             setProfile(profileData);
             setSessions(Array.isArray(sessionsData) ? sessionsData : []);
-            if (Array.isArray(progressData) && progressData.length > 0) {
-                setLatest(progressData[0]);
-            }
+            if (prog.length > 0) setLatest(prog[0]);
+
+            // Pre-fill log form with profile values
+            if (profileData?.weight_kg) setInputWeight(String(profileData.weight_kg));
+            if (profileData?.body_fat_percentage) setInputBodyFat(String(profileData.body_fat_percentage));
         } catch (e) {
             console.error('Progress fetch error:', e);
         } finally {
@@ -55,27 +55,37 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
     };
 
     const logTodayProgress = async () => {
+        if (!inputWeight && !inputBodyFat) {
+            Alert.alert('Error', 'Please enter at least your weight');
+            return;
+        }
+        setLogging(true);
         try {
-            const headers = {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            };
-            await fetch(`${API_URL}/api/v1/progress/`, {
+            const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+            const res = await fetch(`${API_URL}/api/v1/progress/`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
-                    weight_kg: profile?.weight_kg || null,
-                    body_fat_percentage: profile?.body_fat_percentage || null,
+                    weight_kg: inputWeight ? parseFloat(inputWeight) : null,
+                    body_fat_percentage: inputBodyFat ? parseFloat(inputBodyFat) : null,
                     notes: 'Logged from app',
                 }),
             });
-            fetchAllData();
+            if (res.ok) {
+                Alert.alert('✅ Success', 'Progress logged successfully!');
+                setShowLogForm(false);
+                fetchAllData();
+            } else {
+                Alert.alert('Error', 'Failed to log progress');
+            }
         } catch (e) {
-            console.error('Log progress error:', e);
+            Alert.alert('Error', 'Connection error');
+        } finally {
+            setLogging(false);
         }
     };
 
-    // Build weekly workout data from sessions
+    // Build weekly workout chart data
     const buildWeeklyData = () => {
         const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
         const counts = [0, 0, 0, 0, 0, 0, 0];
@@ -92,24 +102,22 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
         return days.map((x, i) => ({ x, y: counts[i] }));
     };
 
-    // Build weight trend data
+    // Build weight trend — use date labels not numbers
     const buildWeightData = () => {
-        if (progress.length === 0) return [{ x: 1, y: 0 }];
-        return progress
-            .slice(0, 7)
-            .reverse()
-            .map((p: any, i: number) => ({
-                x: i + 1,
-                y: p.weight_kg || 0,
-            }))
-            .filter((d: any) => d.y > 0);
+        const filtered = progress.filter((p: any) => p.weight_kg && p.weight_kg > 0);
+        if (filtered.length === 0) return null;
+        return filtered.slice(0, 7).reverse().map((p: any, i: number) => ({
+            x: i + 1,
+            y: parseFloat(p.weight_kg),
+            label: `${p.weight_kg}kg`,
+        }));
     };
 
-    // Build macro data from profile
+    // Build macro data
     const buildMacroData = () => {
-        const protein = profile?.protein_target_g || 150;
-        const carbs = profile?.carbs_target_g || 200;
-        const fat = profile?.fat_target_g || 65;
+        const protein = profile?.protein_target_g || 120;
+        const carbs = profile?.carbs_target_g || 180;
+        const fat = profile?.fat_target_g || 60;
         const total = protein + carbs + fat;
         return [
             { x: 'Protein', y: Math.round((protein / total) * 100) },
@@ -122,11 +130,19 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
     const weightData = buildWeightData();
     const macroData = buildMacroData();
 
+    // Get display values
+    const currentWeight = latest?.weight_kg || profile?.weight_kg || null;
+    const currentHeight = profile?.height_cm || null;
+    const currentBodyFat = latest?.body_fat_percentage || profile?.body_fat_percentage || null;
+    const streak = latest?.streak_days || 0;
+    const xp = latest?.xp_points || 0;
+    const totalWorkouts = sessions.length;
+
     if (loading) {
         return (
             <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
                 <ActivityIndicator size="large" color="#800000" />
-                <Text style={{ color: '#FFFFFF', marginTop: 10 }}>Loading progress...</Text>
+                <Text style={{ color: '#FFF', marginTop: 10 }}>Loading progress...</Text>
             </View>
         );
     }
@@ -139,19 +155,19 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
 
             <Text style={styles.header}>My Progress</Text>
 
-            {/* Stats Cards */}
+            {/* Stats Row */}
             <View style={styles.statsRow}>
                 <View style={styles.statCard}>
-                    <Text style={styles.statNumber}>{sessions.length}</Text>
+                    <Text style={styles.statNumber}>{totalWorkouts}</Text>
                     <Text style={styles.statLabel}>Workouts</Text>
                 </View>
                 <View style={styles.statCard}>
-                    <Text style={styles.statNumber}>{latest?.streak_days || 0}</Text>
-                    <Text style={styles.statLabel}>Day Streak</Text>
+                    <Text style={styles.statNumber}>{streak}</Text>
+                    <Text style={styles.statLabel}>Day Streak 🔥</Text>
                 </View>
                 <View style={styles.statCard}>
-                    <Text style={styles.statNumber}>{latest?.xp_points || 0}</Text>
-                    <Text style={styles.statLabel}>XP Points</Text>
+                    <Text style={styles.statNumber}>{xp}</Text>
+                    <Text style={styles.statLabel}>XP Points ⭐</Text>
                 </View>
             </View>
 
@@ -160,24 +176,68 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                 <Text style={styles.cardTitle}>Current Stats</Text>
                 <View style={styles.currentStatsRow}>
                     <View style={styles.currentStat}>
-                        <Text style={styles.currentStatValue}>{profile?.weight_kg || '--'}</Text>
+                        <Text style={styles.currentStatValue}>
+                            {currentWeight ? `${currentWeight}` : '--'}
+                        </Text>
                         <Text style={styles.currentStatLabel}>Weight (kg)</Text>
                     </View>
                     <View style={styles.currentStat}>
-                        <Text style={styles.currentStatValue}>{profile?.height_cm || '--'}</Text>
+                        <Text style={styles.currentStatValue}>
+                            {currentHeight ? `${currentHeight}` : '--'}
+                        </Text>
                         <Text style={styles.currentStatLabel}>Height (cm)</Text>
                     </View>
                     <View style={styles.currentStat}>
-                        <Text style={styles.currentStatValue}>{profile?.body_fat_percentage || '--'}</Text>
-                        <Text style={styles.currentStatLabel}>Body Fat %</Text>
+                        <Text style={styles.currentStatValue}>
+                            {currentBodyFat ? `${currentBodyFat}%` : '--'}
+                        </Text>
+                        <Text style={styles.currentStatLabel}>Body Fat</Text>
                     </View>
                 </View>
-                <TouchableOpacity style={styles.logButton} onPress={logTodayProgress}>
-                    <Text style={styles.logButtonText}>+ Log Today's Progress</Text>
-                </TouchableOpacity>
+
+                {/* Log Progress Form */}
+                {showLogForm ? (
+                    <View style={styles.logForm}>
+                        <Text style={styles.logFormTitle}>Log Today's Measurements</Text>
+                        <View style={styles.inputRow}>
+                            <Text style={styles.inputLabel}>Weight (kg):</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={inputWeight}
+                                onChangeText={setInputWeight}
+                                keyboardType="decimal-pad"
+                                placeholder="e.g. 75.5"
+                                placeholderTextColor="#666"
+                            />
+                        </View>
+                        <View style={styles.inputRow}>
+                            <Text style={styles.inputLabel}>Body Fat (%):</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={inputBodyFat}
+                                onChangeText={setInputBodyFat}
+                                keyboardType="decimal-pad"
+                                placeholder="e.g. 18.0"
+                                placeholderTextColor="#666"
+                            />
+                        </View>
+                        <View style={styles.logFormBtns}>
+                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowLogForm(false)}>
+                                <Text style={styles.cancelBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.saveBtn} onPress={logTodayProgress} disabled={logging}>
+                                {logging ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.saveBtnText}>Save</Text>}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                ) : (
+                    <TouchableOpacity style={styles.logButton} onPress={() => setShowLogForm(true)}>
+                        <Text style={styles.logButtonText}>+ Log Today's Progress</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
-            {/* Weekly Activity */}
+            {/* Weekly Workouts Bar Chart */}
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>Weekly Workouts</Text>
                 {sessions.length === 0 ? (
@@ -186,37 +246,51 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                     <VictoryChart
                         theme={VictoryTheme.material}
                         width={screenWidth - 60}
-                        height={220}
-                        padding={{ top: 20, bottom: 40, left: 40, right: 40 }}
+                        height={200}
+                        padding={{ top: 20, bottom: 40, left: 40, right: 20 }}
                         domainPadding={{ x: 20 }}
                     >
-                        <VictoryAxis style={{ axis: { stroke: '#FFFFFF' }, tickLabels: { fill: '#FFFFFF', fontSize: 12 }, grid: { stroke: 'none' } }} />
-                        <VictoryAxis dependentAxis style={{ axis: { stroke: '#FFFFFF' }, tickLabels: { fill: '#FFFFFF', fontSize: 12 }, grid: { stroke: '#333333', strokeDasharray: '4,4' } }} />
+                        <VictoryAxis style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 12 }, grid: { stroke: 'none' } }} />
+                        <VictoryAxis dependentAxis tickFormat={(t) => Math.round(t)} style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 12 }, grid: { stroke: '#333', strokeDasharray: '4,4' } }} />
                         <VictoryBar data={weeklyData} style={{ data: { fill: '#6A040F' } }} cornerRadius={{ top: 5 }} />
                     </VictoryChart>
                 )}
             </View>
 
-            {/* Weight Trend */}
+            {/* Weight Trend Line Chart */}
             <View style={styles.card}>
-                <Text style={styles.cardTitle}>Weight Trend</Text>
-                {progress.filter((p: any) => p.weight_kg).length === 0 ? (
-                    <Text style={styles.emptyText}>No weight data yet. Log your progress!</Text>
+                <Text style={styles.cardTitle}>Weight Trend (kg)</Text>
+                {!weightData ? (
+                    <View>
+                        <Text style={styles.emptyText}>No weight data yet.</Text>
+                        <Text style={styles.emptySubText}>Tap "Log Today's Progress" above to start tracking!</Text>
+                    </View>
                 ) : (
                     <VictoryChart
                         theme={VictoryTheme.material}
                         width={screenWidth - 60}
-                        height={220}
-                        padding={{ top: 20, bottom: 40, left: 50, right: 40 }}
+                        height={200}
+                        padding={{ top: 20, bottom: 40, left: 60, right: 20 }}
                     >
-                        <VictoryAxis style={{ axis: { stroke: '#FFFFFF' }, tickLabels: { fill: '#FFFFFF', fontSize: 12 }, grid: { stroke: 'none' } }} />
-                        <VictoryAxis dependentAxis style={{ axis: { stroke: '#FFFFFF' }, tickLabels: { fill: '#FFFFFF', fontSize: 12 }, grid: { stroke: '#333333', strokeDasharray: '4,4' } }} />
-                        <VictoryLine data={weightData} style={{ data: { stroke: '#800000', strokeWidth: 3 } }} />
+                        <VictoryAxis
+                            tickFormat={(t) => `#${t}`}
+                            style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 10 }, grid: { stroke: 'none' } }}
+                        />
+                        <VictoryAxis
+                            dependentAxis
+                            tickFormat={(t) => `${t}kg`}
+                            style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 10 }, grid: { stroke: '#333', strokeDasharray: '4,4' } }}
+                        />
+                        <VictoryLine
+                            data={weightData}
+                            style={{ data: { stroke: '#800000', strokeWidth: 3 } }}
+                            interpolation="monotoneX"
+                        />
                     </VictoryChart>
                 )}
             </View>
 
-            {/* Macro Targets */}
+            {/* Macro Targets Pie Chart */}
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>Macro Targets</Text>
                 <View style={styles.macrosContainer}>
@@ -224,26 +298,29 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                         <View style={styles.macroRow}>
                             <View style={[styles.macroDot, { backgroundColor: '#800000' }]} />
                             <Text style={styles.macroText}>Protein {macroData[0].y}%</Text>
+                            <Text style={styles.macroGrams}>{profile?.protein_target_g || '--'}g</Text>
                         </View>
                         <View style={styles.macroRow}>
                             <View style={[styles.macroDot, { backgroundColor: '#6A040F' }]} />
                             <Text style={styles.macroText}>Carbs {macroData[1].y}%</Text>
+                            <Text style={styles.macroGrams}>{profile?.carbs_target_g || '--'}g</Text>
                         </View>
                         <View style={styles.macroRow}>
                             <View style={[styles.macroDot, { backgroundColor: '#501313' }]} />
                             <Text style={styles.macroText}>Fat {macroData[2].y}%</Text>
+                            <Text style={styles.macroGrams}>{profile?.fat_target_g || '--'}g</Text>
                         </View>
                         <Text style={styles.calorieText}>
-                            Target: {profile?.daily_calorie_target || '--'} kcal/day
+                            🎯 Target: {profile?.daily_calorie_target || '--'} kcal/day
                         </Text>
                     </View>
                     <View style={styles.pieContainer}>
                         <VictoryPie
                             data={macroData}
                             colorScale={['#800000', '#6A040F', '#501313']}
-                            innerRadius={60}
-                            width={150}
-                            height={150}
+                            innerRadius={55}
+                            width={140}
+                            height={140}
                             padding={0}
                             labels={() => null}
                         />
@@ -261,47 +338,33 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                     sessions.slice(0, 5).map((s: any, i: number) => (
                         <View key={i} style={styles.sessionRow}>
                             <View>
-                                <Text style={styles.sessionDate}>
-                                    {new Date(s.started_at).toLocaleDateString()}
-                                </Text>
-                                <Text style={styles.sessionTime}>
-                                    {new Date(s.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </Text>
+                                <Text style={styles.sessionDate}>{new Date(s.started_at).toLocaleDateString()}</Text>
+                                <Text style={styles.sessionTime}>{new Date(s.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
                             </View>
                             <View style={styles.sessionStats}>
-                                <Text style={styles.sessionStat}>
-                                    {s.duration_minutes ? `${s.duration_minutes} min` : 'In progress'}
-                                </Text>
-                                {s.overall_form_score && (
-                                    <Text style={styles.sessionForm}>
-                                        Form: {Math.round(s.overall_form_score * 100)}%
-                                    </Text>
-                                )}
+                                <Text style={styles.sessionStat}>{s.duration_minutes ? `${s.duration_minutes} min` : 'In progress'}</Text>
+                                {s.overall_form_score && <Text style={styles.sessionForm}>Form: {Math.round(s.overall_form_score * 100)}%</Text>}
                             </View>
                         </View>
                     ))
                 )}
             </View>
 
-            {/* Fitness Goal */}
+            {/* Fitness Profile */}
             <View style={styles.card}>
                 <Text style={styles.cardTitle}>Fitness Profile</Text>
-                <View style={styles.goalRow}>
-                    <Text style={styles.goalLabel}>Goal:</Text>
-                    <Text style={styles.goalValue}>{profile?.fitness_goal?.replace('_', ' ') || '--'}</Text>
-                </View>
-                <View style={styles.goalRow}>
-                    <Text style={styles.goalLabel}>Level:</Text>
-                    <Text style={styles.goalValue}>{profile?.fitness_level || '--'}</Text>
-                </View>
-                <View style={styles.goalRow}>
-                    <Text style={styles.goalLabel}>Workout Days/Week:</Text>
-                    <Text style={styles.goalValue}>{profile?.weekly_workout_days || '--'}</Text>
-                </View>
-                <View style={styles.goalRow}>
-                    <Text style={styles.goalLabel}>Session Duration:</Text>
-                    <Text style={styles.goalValue}>{profile?.workout_duration_minutes ? `${profile.workout_duration_minutes} min` : '--'}</Text>
-                </View>
+                {[
+                    ['Goal', profile?.fitness_goal?.replace('_', ' ') || '--'],
+                    ['Level', profile?.fitness_level || '--'],
+                    ['Workout Days/Week', profile?.weekly_workout_days || '--'],
+                    ['Session Duration', profile?.workout_duration_minutes ? `${profile.workout_duration_minutes} min` : '--'],
+                    ['Diet Type', profile?.diet_type || '--'],
+                ].map(([label, value], i) => (
+                    <View key={i} style={styles.goalRow}>
+                        <Text style={styles.goalLabel}>{label}:</Text>
+                        <Text style={styles.goalValue}>{value}</Text>
+                    </View>
+                ))}
             </View>
 
         </ScrollView>
@@ -314,27 +377,39 @@ const styles = StyleSheet.create({
     backButton: { marginBottom: 20, marginTop: 40, padding: 10, backgroundColor: '#501313', borderRadius: 20, alignSelf: 'flex-start' },
     backButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
     header: { fontWeight: '700', fontSize: 28, color: '#FFFFFF', marginBottom: 20, marginLeft: 10 },
-    statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-    statCard: { flex: 1, backgroundColor: '#111111', borderRadius: 15, padding: 15, alignItems: 'center', marginHorizontal: 5, borderWidth: 1, borderColor: '#8B2F3F' },
-    statNumber: { color: '#FFFFFF', fontSize: 28, fontWeight: '700' },
-    statLabel: { color: '#AAAAAA', fontSize: 12, marginTop: 4 },
+    statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, gap: 8 },
+    statCard: { flex: 1, backgroundColor: '#111111', borderRadius: 15, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#8B2F3F' },
+    statNumber: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
+    statLabel: { color: '#AAAAAA', fontSize: 11, marginTop: 4, textAlign: 'center' },
     card: { backgroundColor: '#111111', borderRadius: 20, padding: 15, marginVertical: 10, elevation: 5 },
-    cardTitle: { fontWeight: '700', fontSize: 18, color: '#FFFFFF', marginBottom: 10, marginLeft: 10 },
+    cardTitle: { fontWeight: '700', fontSize: 18, color: '#FFFFFF', marginBottom: 12 },
     currentStatsRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 15 },
     currentStat: { alignItems: 'center' },
     currentStatValue: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
     currentStatLabel: { color: '#AAAAAA', fontSize: 12, marginTop: 4 },
-    logButton: { backgroundColor: '#8B2F3F', borderRadius: 20, padding: 10, alignItems: 'center' },
+    logButton: { backgroundColor: '#8B2F3F', borderRadius: 20, padding: 12, alignItems: 'center' },
     logButtonText: { color: '#FFFFFF', fontWeight: '600', fontSize: 14 },
-    emptyText: { color: '#666666', fontSize: 14, textAlign: 'center', padding: 20, fontStyle: 'italic' },
-    macrosContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10 },
+    logForm: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 15, marginTop: 5 },
+    logFormTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 12 },
+    inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    inputLabel: { color: '#AAAAAA', fontSize: 13, width: 110 },
+    input: { flex: 1, backgroundColor: '#333', color: '#FFF', borderRadius: 8, padding: 8, fontSize: 14 },
+    logFormBtns: { flexDirection: 'row', gap: 10, marginTop: 10 },
+    cancelBtn: { flex: 1, backgroundColor: '#333', borderRadius: 20, padding: 10, alignItems: 'center' },
+    cancelBtnText: { color: '#AAA', fontWeight: '600' },
+    saveBtn: { flex: 1, backgroundColor: '#8B2F3F', borderRadius: 20, padding: 10, alignItems: 'center' },
+    saveBtnText: { color: '#FFF', fontWeight: '600' },
+    emptyText: { color: '#666666', fontSize: 14, textAlign: 'center', padding: 15, fontStyle: 'italic' },
+    emptySubText: { color: '#555555', fontSize: 12, textAlign: 'center', paddingBottom: 15, fontStyle: 'italic' },
+    macrosContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     macrosTextContainer: { flex: 1 },
     macroRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-    macroDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
-    macroText: { fontWeight: '600', fontSize: 16, color: '#FFFFFF' },
-    calorieText: { color: '#AAAAAA', fontSize: 13, marginTop: 5 },
-    pieContainer: { width: 150, height: 150, justifyContent: 'center', alignItems: 'center' },
-    pieCenterText: { position: 'absolute', fontWeight: '700', fontSize: 24, color: '#FFFFFF' },
+    macroDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+    macroText: { fontWeight: '600', fontSize: 14, color: '#FFFFFF', flex: 1 },
+    macroGrams: { color: '#AAAAAA', fontSize: 12 },
+    calorieText: { color: '#AAAAAA', fontSize: 12, marginTop: 5 },
+    pieContainer: { width: 140, height: 140, justifyContent: 'center', alignItems: 'center' },
+    pieCenterText: { position: 'absolute', fontWeight: '700', fontSize: 20, color: '#FFFFFF' },
     sessionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#222222' },
     sessionDate: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
     sessionTime: { color: '#AAAAAA', fontSize: 12 },

@@ -1,18 +1,6 @@
 """
 app.py  --  Form Analysis Inference Server v2
----------------------------------------------
-Endpoints:
-  POST /live/check    -> send latest frame + recent frames, get camera status + rep count + live form
-  POST /live/finish   -> end session, get full analysis with body part breakdown
-  POST /analyze/video -> upload video file (non-live path)
-  GET  /exercises     -> list supported exercises
-  GET  /health        -> health check
-
-Run:
-  pip install -r requirements.txt
-  python app.py
 """
-
 import os
 import json
 import tempfile
@@ -38,17 +26,13 @@ from body_analysis import analyze_body_parts
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# -- Config -------------------------------------------------------------------
 MODELS_DIR = os.getenv("MODELS_DIR", "./models_v2")
 META_DIR   = os.getenv("META_DIR",   "./model_meta_v2")
 MANIFEST   = os.path.join(META_DIR, "manifest.json")
 
-# -- App ----------------------------------------------------------------------
 app = FastAPI(title="Form Analysis API", version="2.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# -- Model registry -----------------------------------------------------------
 class ModelRegistry:
     def __init__(self):
         self.models: dict = {}
@@ -74,8 +58,7 @@ class ModelRegistry:
 
     def predict(self, exercise: str, feat_vec: np.ndarray) -> dict:
         if exercise not in self.models:
-            return {"prediction": "unknown", "confidence": 0.0,
-                    "correct_prob": 0.5, "incorrect_prob": 0.5}
+            return {"prediction": "unknown", "confidence": 0.0, "correct_prob": 0.5, "incorrect_prob": 0.5}
         booster = self.models[exercise]
         dmat = xgb.DMatrix(feat_vec[np.newaxis, :])
         prob_correct = float(booster.predict(dmat)[0])
@@ -90,12 +73,10 @@ class ModelRegistry:
 
 registry = ModelRegistry()
 
-# -- MediaPipe ----------------------------------------------------------------
 mp_pose = mp.solutions.pose
 
 
 def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
-    """Decode one base64 frame -> (132,) keypoints. Returns None on failure."""
     try:
         img_bytes = base64.b64decode(b64)
         nparr     = np.frombuffer(img_bytes, np.uint8)
@@ -118,7 +99,6 @@ def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
 
 
 def frames_to_sequence(frames_b64: List[str]) -> np.ndarray:
-    """Convert list of base64 frames -> (frames, 132) sequence."""
     results = []
     with mp_pose.Pose(static_image_mode=True, model_complexity=1,
                       min_detection_confidence=0.45) as pose:
@@ -153,8 +133,7 @@ def extract_keypoints_from_video(video_path: str) -> np.ndarray:
         raise ValueError(f"Cannot open video: {video_path}")
     frames = []
     with mp_pose.Pose(static_image_mode=False, model_complexity=1,
-                      min_detection_confidence=0.5,
-                      min_tracking_confidence=0.5) as pose:
+                      min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -173,7 +152,7 @@ def extract_keypoints_from_video(video_path: str) -> np.ndarray:
     return np.stack(frames)
 
 
-# -- Request / Response models ------------------------------------------------
+# ── Request / Response models ─────────────────────────────────────────────────
 
 class LiveCheckRequest(BaseModel):
     exercise: str
@@ -190,6 +169,7 @@ class LiveCheckResponse(BaseModel):
     reps_in_window:  int
     form_status:     str
     form_confidence: float
+    keypoints:       Optional[List[float]] = None  # ← NEW: return real keypoints to frontend
 
 
 class FinishRequest(BaseModel):
@@ -219,20 +199,18 @@ class FinishResponse(BaseModel):
     feedback:         str
 
 
-# -- Helpers ------------------------------------------------------------------
-
 def build_finish_feedback(exercise, form, confidence, issues, reps):
     verdict = "good form" if form == "correct" else "some form issues"
     base = f"You completed {reps} rep{'s' if reps != 1 else ''} of {exercise} with {verdict}."
     if issues:
-        top  = issues[0]
+        top = issues[0]
         base += f" Focus on: {top['body_part']} — {top['feedback']}"
     elif form == "correct":
         base += " Excellent work!"
     return base
 
 
-# -- Endpoints ----------------------------------------------------------------
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -254,14 +232,11 @@ def list_exercises():
 
 @app.post("/live/check", response_model=LiveCheckResponse)
 async def live_check(req: LiveCheckRequest):
-    """
-    Called every ~500ms during a live session.
-    Returns camera guidance, rep delta, and running form status.
-    """
     from camera_validator import CameraStatus
 
-    # Camera check
+    # Extract keypoints from latest frame
     latest_kp = frame_b64_to_keypoints(req.latest_frame_b64)
+
     if latest_kp is not None and latest_kp.sum() > 0:
         cam = validate_camera_frame(latest_kp, req.exercise)
     else:
@@ -284,6 +259,11 @@ async def live_check(req: LiveCheckRequest):
             form_status    = pred["prediction"]
             form_conf      = pred["confidence"]
 
+    # Return keypoints back to frontend so it can accumulate for /live/finish
+    kp_list = None
+    if latest_kp is not None and latest_kp.sum() > 0:
+        kp_list = latest_kp.tolist()
+
     return LiveCheckResponse(
         camera_status   = cam.status,
         camera_message  = cam.message,
@@ -292,14 +272,14 @@ async def live_check(req: LiveCheckRequest):
         reps_in_window  = reps_in_window,
         form_status     = form_status,
         form_confidence = form_conf,
+        keypoints       = kp_list,
     )
 
 
 @app.post("/live/finish", response_model=FinishResponse)
 async def live_finish(req: FinishRequest):
-    """End of session - full analysis on all accumulated keypoints."""
-    if len(req.all_keypoints) < 5:
-        raise HTTPException(422, "Need at least 5 frames. Hold the exercise longer and try again.")
+    if len(req.all_keypoints) < 3:
+        raise HTTPException(422, "Need at least 3 frames. Hold the exercise longer and try again.")
 
     seq = np.array(req.all_keypoints, dtype=np.float32)
     if seq.shape[1] != 132:

@@ -87,7 +87,8 @@ async def create_diet_plan(
         is_ai_generated=False,
     )
     db.add(plan)
-    await db.flush()
+    await db.commit()
+    await db.refresh(plan)
     return plan
 
 

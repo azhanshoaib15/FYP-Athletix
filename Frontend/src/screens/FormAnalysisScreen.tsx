@@ -236,36 +236,89 @@ const parseLandmarks = (kp: number[]): LM[] => {
 };
 
 // ─── Reference skeleton component ────────────────────────────────────────────
+// Dynamically aligns to the detected person's position and scale
 
-function ReferenceSkeletonOverlay({ exercise, w, h }: { exercise: string; w: number; h: number }) {
-    const posture = REFERENCE_POSTURES[exercise] || DEFAULT_POSTURE;
-    const connections = [
+function ReferenceSkeletonOverlay({
+    exercise, w, h, personLandmarks
+}: {
+    exercise: string; w: number; h: number; personLandmarks: LM[] | null
+}) {
+    const refPosture = REFERENCE_POSTURES[exercise] || DEFAULT_POSTURE;
+    const connections: [number,number][] = [
         [11,12],[11,23],[12,24],[23,24],
         [11,13],[13,15],[12,14],[14,16],
         [23,25],[25,27],[24,26],[26,28],
         [0,11],[0,12],
     ];
 
+    // If we have the person's landmarks, align reference to their position
+    let offsetX = 0, offsetY = 0, scaleX = 1, scaleY = 1;
+
+    if (personLandmarks) {
+        // Use shoulder midpoint as anchor
+        const lSh = personLandmarks[11];
+        const rSh = personLandmarks[12];
+        const lHip = personLandmarks[23];
+        const rHip = personLandmarks[24];
+
+        if (lSh.v > 0.3 && rSh.v > 0.3) {
+            // Person's shoulder center
+            const personShX = (lSh.x + rSh.x) / 2;
+            const personShY = (lSh.y + rSh.y) / 2;
+
+            // Reference shoulder center
+            const refShX = ((refPosture[11]?.[0] || 0.38) + (refPosture[12]?.[0] || 0.62)) / 2;
+            const refShY = ((refPosture[11]?.[1] || 0.28) + (refPosture[12]?.[1] || 0.28)) / 2;
+
+            // Scale based on shoulder width
+            const personShWidth = Math.abs(rSh.x - lSh.x);
+            const refShWidth = Math.abs((refPosture[12]?.[0] || 0.62) - (refPosture[11]?.[0] || 0.38));
+
+            if (personShWidth > 0.02 && refShWidth > 0) {
+                scaleX = personShWidth / refShWidth;
+                scaleY = scaleX; // uniform scale
+            }
+
+            // If we have hip too, scale vertically based on torso height
+            if (lHip.v > 0.3 && rHip.v > 0.3) {
+                const personTorsoH = ((lHip.y + rHip.y) / 2) - personShY;
+                const refTorsoH = ((refPosture[23]?.[1] || 0.55) + (refPosture[24]?.[1] || 0.55)) / 2 - refShY;
+                if (personTorsoH > 0.02 && refTorsoH > 0) {
+                    scaleY = personTorsoH / refTorsoH;
+                }
+            }
+
+            // Offset to align shoulders
+            offsetX = personShX - refShX * scaleX;
+            offsetY = personShY - refShY * scaleY;
+        }
+    }
+
+    // Transform a reference coordinate to screen position
+    const tx = (rx: number) => (rx * scaleX + offsetX) * w;
+    const ty = (ry: number) => (ry * scaleY + offsetY) * h;
+
     return (
-        <G opacity={0.35}>
+        <G opacity={0.4}>
             {connections.map(([a, b], i) => {
-                const A = posture[a]; const B = posture[b];
+                const A = refPosture[a]; const B = refPosture[b];
                 if (!A || !B) return null;
                 return (
                     <Line key={"ref-l"+i}
-                        x1={A[0]*w} y1={A[1]*h}
-                        x2={B[0]*w} y2={B[1]*h}
-                        stroke="#00BFFF" strokeWidth={2.5}
-                        strokeDasharray="6,4"
+                        x1={tx(A[0])} y1={ty(A[1])}
+                        x2={tx(B[0])} y2={ty(B[1])}
+                        stroke="#00BFFF" strokeWidth={3}
+                        strokeDasharray="8,5"
                         strokeLinecap="round"
                     />
                 );
             })}
-            {Object.entries(posture).map(([idx, pos]) => (
+            {Object.entries(refPosture).map(([idx, pos]) => (
                 <Circle key={"ref-j"+idx}
-                    cx={(pos as [number,number])[0]*w}
-                    cy={(pos as [number,number])[1]*h}
-                    r={5} fill="#00BFFF" fillOpacity={0.7}
+                    cx={tx((pos as [number,number])[0])}
+                    cy={ty((pos as [number,number])[1])}
+                    r={6} fill="#00BFFF" fillOpacity={0.8}
+                    stroke="#005080" strokeWidth={1}
                 />
             ))}
         </G>
@@ -301,9 +354,12 @@ function SkeletonOverlay({ keypoints, formStatus, exercise, w, h, showReference 
     return (
         <Svg style={StyleSheet.absoluteFill} width={w} height={h}>
 
-            {/* Reference skeleton (ghost) */}
+            {/* Reference skeleton (ghost) - aligned to person */}
             {showReference && (
-                <ReferenceSkeletonOverlay exercise={exercise} w={w} h={h} />
+                <ReferenceSkeletonOverlay
+                    exercise={exercise} w={w} h={h}
+                    personLandmarks={keypoints && keypoints.length === 132 ? parseLandmarks(keypoints) : null}
+                />
             )}
 
             {/* Live person skeleton */}

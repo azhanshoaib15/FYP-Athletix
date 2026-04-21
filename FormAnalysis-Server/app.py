@@ -248,10 +248,10 @@ async def live_check(req: LiveCheckRequest):
     form_status    = "unknown"
     form_conf      = 0.0
 
-    if len(req.recent_frames_b64) >= 10:
+    if len(req.recent_frames_b64) >= 5:
         seq = frames_to_sequence(req.recent_frames_b64)
         seq = filter_low_confidence_frames(seq)
-        if len(seq) >= 5:
+        if len(seq) >= 3:
             rep_info       = count_reps_from_sequence(seq, req.exercise)
             reps_in_window = rep_info.get("reps", 0)
             feat_vec       = sequence_to_feature_vector(seq)
@@ -259,12 +259,9 @@ async def live_check(req: LiveCheckRequest):
             form_status    = pred["prediction"]
             form_conf      = pred["confidence"]
 
-    # Return keypoints back to frontend even if camera not fully ready
-    # This allows skeleton to draw even during partial detection
+    # Return keypoints back to frontend so it can accumulate for /live/finish
     kp_list = None
     if latest_kp is not None and latest_kp.sum() > 0:
-        kp_list = latest_kp.tolist()
-    elif latest_kp is not None and np.any(latest_kp != 0):
         kp_list = latest_kp.tolist()
 
     return LiveCheckResponse(

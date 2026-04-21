@@ -104,7 +104,7 @@ async def create_progress_record(
         notes=data.notes,
     )
     db.add(record)
-    await db.flush()
+
     return record
 
 

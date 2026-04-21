@@ -88,8 +88,13 @@ async def create_diet_plan(
     )
     db.add(plan)
     await db.commit()
-    await db.refresh(plan)
-    return plan
+    # Reload with meals relationship
+    result = await db.execute(
+        select(DietPlan)
+        .where(DietPlan.id == plan.id)
+        .options(selectinload(DietPlan.meals))
+    )
+    return result.scalar_one()
 
 
 # ── Progress Records ───────────────────────────────────────────────────────────

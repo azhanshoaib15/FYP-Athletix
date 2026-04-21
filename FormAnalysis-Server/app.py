@@ -259,9 +259,12 @@ async def live_check(req: LiveCheckRequest):
             form_status    = pred["prediction"]
             form_conf      = pred["confidence"]
 
-    # Return keypoints back to frontend so it can accumulate for /live/finish
+    # Return keypoints back to frontend even if camera not fully ready
+    # This allows skeleton to draw even during partial detection
     kp_list = None
     if latest_kp is not None and latest_kp.sum() > 0:
+        kp_list = latest_kp.tolist()
+    elif latest_kp is not None and np.any(latest_kp != 0):
         kp_list = latest_kp.tolist()
 
     return LiveCheckResponse(

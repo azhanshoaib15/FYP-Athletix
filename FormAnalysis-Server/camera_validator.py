@@ -122,7 +122,7 @@ def validate_camera_frame(frame_132: np.ndarray, exercise: str) -> CameraStatus:
     mean_vis = float(visibilities.mean())
     low_vis_count = int((visibilities < 0.4).sum())
 
-    if mean_vis < 0.25:
+    if mean_vis < 0.15:
         return CameraStatus(
             status="low_light",
             message="Too dark or body not detected — find better lighting",
@@ -130,7 +130,7 @@ def validate_camera_frame(frame_132: np.ndarray, exercise: str) -> CameraStatus:
             ready=False,
         )
 
-    if low_vis_count > len(required_indices) * 0.4:
+    if low_vis_count > len(required_indices) * 0.6:
         # More than 40% of required landmarks invisible
         # Figure out which region is missing
         missing = _identify_missing_region(lm, required_indices, exercise)
@@ -162,7 +162,7 @@ def validate_camera_frame(frame_132: np.ndarray, exercise: str) -> CameraStatus:
     # Use shoulder-to-ankle (or shoulder-to-hip) vertical span
     body_height_ratio = _estimate_body_height(lm, exercise)
 
-    if body_height_ratio < min_body_height * 0.65:
+    if body_height_ratio < min_body_height * 0.45:
         return CameraStatus(
             status="too_far",
             message="Move the camera closer — you're too far away",
@@ -184,7 +184,7 @@ def validate_camera_frame(frame_132: np.ndarray, exercise: str) -> CameraStatus:
     shoulder_tilt = abs(float(left_sh[1] - right_sh[1]))   # y difference
     shoulder_width = abs(float(left_sh[0] - right_sh[0]))  # x difference
 
-    if shoulder_width < 0.05:
+    if shoulder_width < 0.02:
         return CameraStatus(
             status="rotate",
             message="Turn to face the camera directly",

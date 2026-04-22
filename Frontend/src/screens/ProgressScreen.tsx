@@ -102,15 +102,23 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
         return days.map((x, i) => ({ x, y: counts[i] }));
     };
 
-    // Build weight trend — use date labels not numbers
+    // Build weight trend with proper date labels
     const buildWeightData = () => {
         const filtered = progress.filter((p: any) => p.weight_kg && p.weight_kg > 0);
         if (filtered.length === 0) return null;
-        return filtered.slice(0, 7).reverse().map((p: any, i: number) => ({
-            x: i + 1,
-            y: parseFloat(p.weight_kg),
-            label: `${p.weight_kg}kg`,
-        }));
+        return filtered.slice(0, 7).reverse().map((p: any) => {
+            const d = new Date(p.recorded_at);
+            const label = d.getDate() + "/" + (d.getMonth()+1);
+            return { x: label, y: Math.round(parseFloat(p.weight_kg) * 10) / 10 };
+        });
+    };
+
+    const getWeightDomain = (data: any[]) => {
+        const weights = data.map((d: any) => d.y);
+        const mn = Math.min(...weights);
+        const mx = Math.max(...weights);
+        const pad = Math.max(3, (mx - mn) * 0.3 + 1);
+        return [Math.floor(mn - pad), Math.ceil(mx + pad)] as [number, number];
     };
 
     // Build macro data
@@ -271,14 +279,15 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                         width={screenWidth - 60}
                         height={200}
                         padding={{ top: 20, bottom: 40, left: 60, right: 20 }}
+                        domain={{ y: getWeightDomain(weightData) }}
                     >
                         <VictoryAxis
-                            tickFormat={(t) => `#${t}`}
                             style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 10 }, grid: { stroke: 'none' } }}
                         />
                         <VictoryAxis
                             dependentAxis
-                            tickFormat={(t) => `${t}kg`}
+                            tickCount={5}
+                            tickFormat={(t) => `${Math.round(t)}kg`}
                             style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 10 }, grid: { stroke: '#333', strokeDasharray: '4,4' } }}
                         />
                         <VictoryLine

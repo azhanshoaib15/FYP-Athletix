@@ -4,16 +4,19 @@ import {
     ActivityIndicator, Dimensions, ScrollView,
     StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
-import Svg, { Circle, Line, Rect, Text as SvgText, G, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Line, Rect, Text as SvgText, G } from 'react-native-svg';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../store/store';
 
 const FORM_ANALYSIS_URL = 'https://desirable-playfulness-production-a1dd.up.railway.app';
+const BACKEND_URL       = 'https://fyp-athletix-production.up.railway.app';
 const { width: SW, height: SH } = Dimensions.get('window');
 
 interface FormAnalysisProps {
     onNavigate: (screen: any) => void;
 }
 
-// ─── Exercise config ────────────────────────────────────────────────────────
+// ── Exercise config ────────────────────────────────────────────────────────────
 
 const EXERCISES = [
     'Squats', 'PushUp', 'Bench Press', 'Bicep curl', 'Lunges',
@@ -56,30 +59,30 @@ const getGuidance = (ex: string) => EXERCISE_GUIDANCE[ex] || {
     distance:'5-7 feet', angle:'Side or front', tip:'Full body visible', camera:'Back camera'
 };
 
-// ─── MediaPipe skeleton ──────────────────────────────────────────────────────
+// Exercise ID map (matches database)
+const EXERCISE_ID_MAP: Record<string, number> = {
+    'Push-up': 1, 'Squat': 2, 'Bench Press': 3,
+    'Bicep Curl': 4, 'Lat Pulldown': 5, 'Tricep pushdown': 6,
+    'Shoulder press': 7, 'Plank': 8,
+    'PushUp': 1, 'Squats': 2, 'Bicep curl': 4,
+};
 
-// Connections with body region labels for coloring
+// ── MediaPipe skeleton ─────────────────────────────────────────────────────────
+
 const BODY_CONNECTIONS: {a:number; b:number; region:string}[] = [
-    // Torso (core)
     {a:11, b:12, region:'torso'}, {a:11, b:23, region:'torso'},
     {a:12, b:24, region:'torso'}, {a:23, b:24, region:'torso'},
-    // Left arm
     {a:11, b:13, region:'left_arm'}, {a:13, b:15, region:'left_arm'},
     {a:15, b:17, region:'left_arm'}, {a:15, b:19, region:'left_arm'},
-    // Right arm
     {a:12, b:14, region:'right_arm'}, {a:14, b:16, region:'right_arm'},
     {a:16, b:18, region:'right_arm'}, {a:16, b:20, region:'right_arm'},
-    // Left leg
     {a:23, b:25, region:'left_leg'}, {a:25, b:27, region:'left_leg'},
     {a:27, b:29, region:'left_leg'}, {a:27, b:31, region:'left_leg'},
-    // Right leg
     {a:24, b:26, region:'right_leg'}, {a:26, b:28, region:'right_leg'},
     {a:28, b:30, region:'right_leg'}, {a:28, b:32, region:'right_leg'},
-    // Face
-    {a:0,  b:11, region:'torso'}, {a:0, b:12, region:'torso'},
+    {a:0,  b:11, region:'torso'}, {a:0,  b:12, region:'torso'},
 ];
 
-// Key joints with their region
 const JOINT_REGIONS: {idx:number; region:string}[] = [
     {idx:0,  region:'torso'},
     {idx:11, region:'torso'}, {idx:12, region:'torso'},
@@ -90,9 +93,6 @@ const JOINT_REGIONS: {idx:number; region:string}[] = [
     {idx:27, region:'left_leg'}, {idx:28, region:'right_leg'},
 ];
 
-// ─── Per-exercise joint angle rules (mirrors body_analysis.py) ────────────────
-// Which body regions are "critical" for each exercise
-// Maps exercise → which regions to highlight red if form is bad
 const EXERCISE_CRITICAL_REGIONS: Record<string, string[]> = {
     'Squats':         ['left_leg', 'right_leg', 'torso'],
     'PushUp':         ['left_arm', 'right_arm', 'torso'],
@@ -114,115 +114,55 @@ const EXERCISE_CRITICAL_REGIONS: Record<string, string[]> = {
     'Incline beanch Press': ['left_arm', 'right_arm', 'torso'],
 };
 
-// ─── Reference postures (correct form skeleton positions) ─────────────────────
-// Normalized (0-1) x,y coordinates for each exercise's ideal posture
-// Based on standard biomechanics for each exercise
-// Format: array of 33 [x,y] pairs matching MediaPipe landmark order
-// Key landmarks only — others interpolated
+// ── Reference postures ─────────────────────────────────────────────────────────
 
 const REFERENCE_POSTURES: Record<string, {[key:number]: [number, number]}> = {
     'Squats': {
-        // Standing squat position (parallel)
-        0:  [0.5,  0.08], // nose
-        11: [0.38, 0.28], // left shoulder
-        12: [0.62, 0.28], // right shoulder
-        13: [0.32, 0.40], // left elbow
-        14: [0.68, 0.40], // right elbow
-        15: [0.30, 0.50], // left wrist
-        16: [0.70, 0.50], // right wrist
-        23: [0.40, 0.52], // left hip
-        24: [0.60, 0.52], // right hip
-        25: [0.38, 0.68], // left knee
-        26: [0.62, 0.68], // right knee
-        27: [0.38, 0.85], // left ankle
-        28: [0.62, 0.85], // right ankle
+        0:[0.5,0.08], 11:[0.38,0.28], 12:[0.62,0.28],
+        13:[0.32,0.40], 14:[0.68,0.40], 15:[0.30,0.50], 16:[0.70,0.50],
+        23:[0.40,0.52], 24:[0.60,0.52], 25:[0.38,0.68], 26:[0.62,0.68],
+        27:[0.38,0.85], 28:[0.62,0.85],
     },
     'PushUp': {
-        0:  [0.15, 0.35],
-        11: [0.25, 0.40],
-        12: [0.25, 0.50],
-        13: [0.35, 0.38],
-        14: [0.35, 0.52],
-        15: [0.45, 0.37],
-        16: [0.45, 0.53],
-        23: [0.55, 0.45],
-        24: [0.55, 0.50],
-        25: [0.70, 0.46],
-        26: [0.70, 0.49],
-        27: [0.85, 0.47],
-        28: [0.85, 0.48],
+        0:[0.15,0.35], 11:[0.25,0.40], 12:[0.25,0.50],
+        13:[0.35,0.38], 14:[0.35,0.52], 15:[0.45,0.37], 16:[0.45,0.53],
+        23:[0.55,0.45], 24:[0.55,0.50], 25:[0.70,0.46], 26:[0.70,0.49],
+        27:[0.85,0.47], 28:[0.85,0.48],
     },
     'Bicep curl': {
-        0:  [0.50, 0.08],
-        11: [0.38, 0.28],
-        12: [0.62, 0.28],
-        13: [0.35, 0.45], // elbow bent
-        14: [0.65, 0.45],
-        15: [0.38, 0.32], // wrist up (curled)
-        16: [0.62, 0.32],
-        23: [0.42, 0.55],
-        24: [0.58, 0.55],
-        25: [0.42, 0.75],
-        26: [0.58, 0.75],
-        27: [0.42, 0.92],
-        28: [0.58, 0.92],
+        0:[0.50,0.08], 11:[0.38,0.28], 12:[0.62,0.28],
+        13:[0.35,0.45], 14:[0.65,0.45], 15:[0.38,0.32], 16:[0.62,0.32],
+        23:[0.42,0.55], 24:[0.58,0.55], 25:[0.42,0.75], 26:[0.58,0.75],
+        27:[0.42,0.92], 28:[0.58,0.92],
     },
     'Shoulder press': {
-        0:  [0.50, 0.08],
-        11: [0.35, 0.30],
-        12: [0.65, 0.30],
-        13: [0.28, 0.30], // elbows at shoulder height
-        14: [0.72, 0.30],
-        15: [0.28, 0.15], // wrists up (pressing)
-        16: [0.72, 0.15],
-        23: [0.42, 0.55],
-        24: [0.58, 0.55],
-        25: [0.42, 0.75],
-        26: [0.58, 0.75],
-        27: [0.42, 0.92],
-        28: [0.58, 0.92],
+        0:[0.50,0.08], 11:[0.35,0.30], 12:[0.65,0.30],
+        13:[0.28,0.30], 14:[0.72,0.30], 15:[0.28,0.15], 16:[0.72,0.15],
+        23:[0.42,0.55], 24:[0.58,0.55], 25:[0.42,0.75], 26:[0.58,0.75],
+        27:[0.42,0.92], 28:[0.58,0.92],
     },
     'Lunges': {
-        0:  [0.50, 0.08],
-        11: [0.42, 0.28],
-        12: [0.58, 0.28],
-        13: [0.38, 0.42],
-        14: [0.62, 0.42],
-        15: [0.36, 0.55],
-        16: [0.64, 0.55],
-        23: [0.44, 0.52],
-        24: [0.56, 0.52],
-        25: [0.35, 0.68], // front knee bent 90
-        26: [0.60, 0.72], // back knee lower
-        27: [0.30, 0.85],
-        28: [0.65, 0.90],
+        0:[0.50,0.08], 11:[0.42,0.28], 12:[0.58,0.28],
+        13:[0.38,0.42], 14:[0.62,0.42], 15:[0.36,0.55], 16:[0.64,0.55],
+        23:[0.44,0.52], 24:[0.56,0.52], 25:[0.35,0.68], 26:[0.60,0.72],
+        27:[0.30,0.85], 28:[0.65,0.90],
     },
     'Plank': {
-        0:  [0.12, 0.38],
-        11: [0.22, 0.42],
-        12: [0.22, 0.50],
-        13: [0.32, 0.42],
-        14: [0.32, 0.50],
-        15: [0.42, 0.43],
-        16: [0.42, 0.49],
-        23: [0.58, 0.44],
-        24: [0.58, 0.48],
-        25: [0.72, 0.44],
-        26: [0.72, 0.48],
-        27: [0.85, 0.44],
-        28: [0.85, 0.48],
+        0:[0.12,0.38], 11:[0.22,0.42], 12:[0.22,0.50],
+        13:[0.32,0.42], 14:[0.32,0.50], 15:[0.42,0.43], 16:[0.42,0.49],
+        23:[0.58,0.44], 24:[0.58,0.48], 25:[0.72,0.44], 26:[0.72,0.48],
+        27:[0.85,0.44], 28:[0.85,0.48],
     },
 };
 
-// Default standing posture for exercises without specific reference
 const DEFAULT_POSTURE: {[key:number]: [number, number]} = {
-    0:  [0.5, 0.08],
-    11: [0.38, 0.28], 12: [0.62, 0.28],
-    13: [0.32, 0.42], 14: [0.68, 0.42],
-    15: [0.30, 0.56], 16: [0.70, 0.56],
-    23: [0.42, 0.55], 24: [0.58, 0.55],
-    25: [0.42, 0.72], 26: [0.58, 0.72],
-    27: [0.42, 0.88], 28: [0.58, 0.88],
+    0:[0.5,0.08],
+    11:[0.38,0.28], 12:[0.62,0.28],
+    13:[0.32,0.42], 14:[0.68,0.42],
+    15:[0.30,0.56], 16:[0.70,0.56],
+    23:[0.42,0.55], 24:[0.58,0.55],
+    25:[0.42,0.72], 26:[0.58,0.72],
+    27:[0.42,0.88], 28:[0.58,0.88],
 };
 
 interface LM { x:number; y:number; v:number; }
@@ -235,8 +175,7 @@ const parseLandmarks = (kp: number[]): LM[] => {
     return lms;
 };
 
-// ─── Reference skeleton component ────────────────────────────────────────────
-// Dynamically aligns to the detected person's position and scale
+// ── Reference skeleton (blue ghost) ───────────────────────────────────────────
 
 function ReferenceSkeletonOverlay({
     exercise, w, h, personLandmarks
@@ -251,50 +190,35 @@ function ReferenceSkeletonOverlay({
         [0,11],[0,12],
     ];
 
-    // If we have the person's landmarks, align reference to their position
     let offsetX = 0, offsetY = 0, scaleX = 1, scaleY = 1;
 
     if (personLandmarks) {
-        // Use shoulder midpoint as anchor
         const lSh = personLandmarks[11];
         const rSh = personLandmarks[12];
         const lHip = personLandmarks[23];
         const rHip = personLandmarks[24];
 
         if (lSh.v > 0.3 && rSh.v > 0.3) {
-            // Person's shoulder center
             const personShX = (lSh.x + rSh.x) / 2;
             const personShY = (lSh.y + rSh.y) / 2;
-
-            // Reference shoulder center
             const refShX = ((refPosture[11]?.[0] || 0.38) + (refPosture[12]?.[0] || 0.62)) / 2;
             const refShY = ((refPosture[11]?.[1] || 0.28) + (refPosture[12]?.[1] || 0.28)) / 2;
-
-            // Scale based on shoulder width
             const personShWidth = Math.abs(rSh.x - lSh.x);
             const refShWidth = Math.abs((refPosture[12]?.[0] || 0.62) - (refPosture[11]?.[0] || 0.38));
-
             if (personShWidth > 0.02 && refShWidth > 0) {
                 scaleX = personShWidth / refShWidth;
-                scaleY = scaleX; // uniform scale
+                scaleY = scaleX;
             }
-
-            // If we have hip too, scale vertically based on torso height
             if (lHip.v > 0.3 && rHip.v > 0.3) {
                 const personTorsoH = ((lHip.y + rHip.y) / 2) - personShY;
                 const refTorsoH = ((refPosture[23]?.[1] || 0.55) + (refPosture[24]?.[1] || 0.55)) / 2 - refShY;
-                if (personTorsoH > 0.02 && refTorsoH > 0) {
-                    scaleY = personTorsoH / refTorsoH;
-                }
+                if (personTorsoH > 0.02 && refTorsoH > 0) scaleY = personTorsoH / refTorsoH;
             }
-
-            // Offset to align shoulders
             offsetX = personShX - refShX * scaleX;
             offsetY = personShY - refShY * scaleY;
         }
     }
 
-    // Transform a reference coordinate to screen position
     const tx = (rx: number) => (rx * scaleX + offsetX) * w;
     const ty = (ry: number) => (ry * scaleY + offsetY) * h;
 
@@ -308,8 +232,7 @@ function ReferenceSkeletonOverlay({
                         x1={tx(A[0])} y1={ty(A[1])}
                         x2={tx(B[0])} y2={ty(B[1])}
                         stroke="#00BFFF" strokeWidth={3}
-                        strokeDasharray="8,5"
-                        strokeLinecap="round"
+                        strokeDasharray="8,5" strokeLinecap="round"
                     />
                 );
             })}
@@ -325,7 +248,7 @@ function ReferenceSkeletonOverlay({
     );
 }
 
-// ─── Live skeleton component ──────────────────────────────────────────────────
+// ── Live skeleton overlay ──────────────────────────────────────────────────────
 
 interface SkeletonProps {
     keypoints: number[] | null;
@@ -341,118 +264,102 @@ function SkeletonOverlay({ keypoints, formStatus, exercise, w, h, showReference 
 
     const criticalRegions = EXERCISE_CRITICAL_REGIONS[exercise] || ['torso'];
 
-    // Get color for a region based on form status
     const getRegionColor = (region: string): string => {
-        if (formStatus === 'correct') return '#00FF88';      // all green
-        if (formStatus === 'incorrect') {
-            // Red for critical regions, yellow for others
-            return criticalRegions.includes(region) ? '#FF3333' : '#FFD700';
-        }
-        return '#FFD700'; // yellow = detecting
+        if (formStatus === 'correct')   return '#00FF88';
+        if (formStatus === 'incorrect') return criticalRegions.includes(region) ? '#FF3333' : '#FFD700';
+        return '#FFD700';
     };
+
+    const personLandmarks = keypoints && keypoints.length === 132 ? parseLandmarks(keypoints) : null;
 
     return (
         <Svg style={StyleSheet.absoluteFill} width={w} height={h}>
 
-            {/* Reference skeleton (ghost) - aligned to person */}
+            {/* Blue reference skeleton */}
             {showReference && (
                 <ReferenceSkeletonOverlay
                     exercise={exercise} w={w} h={h}
-                    personLandmarks={keypoints && keypoints.length === 132 ? parseLandmarks(keypoints) : null}
+                    personLandmarks={personLandmarks}
                 />
             )}
 
             {/* Live person skeleton */}
-            {keypoints && keypoints.length === 132 && (() => {
-                const lms = parseLandmarks(keypoints);
-                return (
-                    <G>
-                        {/* Skeleton lines */}
-                        {BODY_CONNECTIONS.map(({a, b, region}, i) => {
-                            const A = lms[a]; const B = lms[b];
-                            if (!A || !B || A.v < 0.3 || B.v < 0.3) return null;
-                            const color = getRegionColor(region);
-                            return (
-                                <Line key={"l"+i}
-                                    x1={A.x*w} y1={A.y*h}
-                                    x2={B.x*w} y2={B.y*h}
-                                    stroke={color} strokeWidth={4}
-                                    strokeOpacity={0.92}
-                                    strokeLinecap="round"
-                                />
-                            );
-                        })}
+            {personLandmarks && (
+                <G>
+                    {BODY_CONNECTIONS.map(({a, b, region}, i) => {
+                        const A = personLandmarks[a]; const B = personLandmarks[b];
+                        if (!A || !B || A.v < 0.3 || B.v < 0.3) return null;
+                        return (
+                            <Line key={"l"+i}
+                                x1={A.x*w} y1={A.y*h}
+                                x2={B.x*w} y2={B.y*h}
+                                stroke={getRegionColor(region)} strokeWidth={4}
+                                strokeOpacity={0.92} strokeLinecap="round"
+                            />
+                        );
+                    })}
 
-                        {/* Joint circles */}
-                        {JOINT_REGIONS.map(({idx, region}) => {
-                            const lm = lms[idx];
-                            if (!lm || lm.v < 0.3) return null;
-                            const color = getRegionColor(region);
-                            return (
-                                <Circle key={"j"+idx}
-                                    cx={lm.x*w} cy={lm.y*h}
-                                    r={8} fill={color} fillOpacity={0.95}
-                                    stroke="#000" strokeWidth={2}
-                                />
-                            );
-                        })}
+                    {JOINT_REGIONS.map(({idx, region}) => {
+                        const lm = personLandmarks[idx];
+                        if (!lm || lm.v < 0.3) return null;
+                        return (
+                            <Circle key={"j"+idx}
+                                cx={lm.x*w} cy={lm.y*h}
+                                r={8} fill={getRegionColor(region)} fillOpacity={0.95}
+                                stroke="#000" strokeWidth={2}
+                            />
+                        );
+                    })}
 
-                        {/* All other landmarks (smaller) */}
-                        {lms.map((lm, idx) => {
-                            const isKey = JOINT_REGIONS.some(j => j.idx === idx);
-                            if (!isKey && lm.v >= 0.5) {
-                                return (
-                                    <Circle key={"d"+idx}
-                                        cx={lm.x*w} cy={lm.y*h}
-                                        r={4} fill="#FFD700" fillOpacity={0.7}
-                                    />
-                                );
-                            }
-                            return null;
-                        })}
+                    {personLandmarks.map((lm, idx) => {
+                        const isKey = JOINT_REGIONS.some(j => j.idx === idx);
+                        if (!isKey && lm.v >= 0.5) {
+                            return <Circle key={"d"+idx} cx={lm.x*w} cy={lm.y*h} r={4} fill="#FFD700" fillOpacity={0.7} />;
+                        }
+                        return null;
+                    })}
 
-                        {/* Form status badge on skeleton */}
-                        {formStatus !== '' && formStatus !== 'unknown' && (() => {
-                            // Position badge near the person's head
-                            const nose = lms[0];
-                            const bx = nose && nose.v > 0.3 ? nose.x * w : w/2;
-                            const by = nose && nose.v > 0.3 ? Math.max(nose.y * h - 50, 20) : 60;
-                            const bgColor = formStatus === 'correct' ? 'rgba(0,180,0,0.9)' : 'rgba(200,0,0,0.9)';
-                            const label = formStatus === 'correct' ? 'GOOD FORM' : 'FIX FORM';
-                            return (
-                                <>
-                                    <Rect x={bx-50} y={by-18} width={100} height={28} rx={14} fill={bgColor} />
-                                    <SvgText x={bx} y={by+6} textAnchor="middle" fill="white" fontSize={13} fontWeight="bold">
-                                        {label}
-                                    </SvgText>
-                                </>
-                            );
-                        })()}
-                    </G>
-                );
-            })()}
+                    {formStatus !== '' && formStatus !== 'unknown' && (() => {
+                        const nose = personLandmarks[0];
+                        const bx = nose && nose.v > 0.3 ? nose.x * w : w/2;
+                        const by = nose && nose.v > 0.3 ? Math.max(nose.y * h - 50, 20) : 60;
+                        const bgColor = formStatus === 'correct' ? 'rgba(0,180,0,0.9)' : 'rgba(200,0,0,0.9)';
+                        const label  = formStatus === 'correct' ? 'GOOD FORM' : 'FIX FORM';
+                        return (
+                            <>
+                                <Rect x={bx-55} y={by-18} width={110} height={30} rx={15} fill={bgColor} />
+                                <SvgText x={bx} y={by+7} textAnchor="middle" fill="white" fontSize={14} fontWeight="bold">
+                                    {label}
+                                </SvgText>
+                            </>
+                        );
+                    })()}
+                </G>
+            )}
 
             {/* Legend */}
-            {keypoints && keypoints.length === 132 && (
+            {personLandmarks && (
                 <>
-                    <Rect x={10} y={h-80} width={130} height={70} rx={8} fill="rgba(0,0,0,0.7)" />
-                    <Circle cx={24} cy={h-62} r={5} fill="#00FF88" />
-                    <SvgText x={34} y={h-57} fill="white" fontSize={11}>Correct form</SvgText>
-                    <Circle cx={24} cy={h-44} r={5} fill="#FF3333" />
-                    <SvgText x={34} y={h-39} fill="white" fontSize={11}>Needs fixing</SvgText>
-                    <Circle cx={24} cy={h-26} r={5} fill="#00BFFF" fillOpacity={0.7} />
-                    <SvgText x={34} y={h-21} fill="white" fontSize={11}>Target posture</SvgText>
+                    <Rect x={10} y={h-90} width={145} height={82} rx={10} fill="rgba(0,0,0,0.75)" />
+                    <Circle cx={26} cy={h-72} r={6} fill="#00FF88" />
+                    <SvgText x={38} y={h-67} fill="white" fontSize={12}>Correct form</SvgText>
+                    <Circle cx={26} cy={h-52} r={6} fill="#FF3333" />
+                    <SvgText x={38} y={h-47} fill="white" fontSize={12}>Needs fixing</SvgText>
+                    <Circle cx={26} cy={h-32} r={6} fill="#00BFFF" fillOpacity={0.8} />
+                    <SvgText x={38} y={h-27} fill="white" fontSize={12}>Target posture</SvgText>
                 </>
             )}
         </Svg>
     );
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
+// ── Main screen ────────────────────────────────────────────────────────────────
 
 type Phase = 'setup' | 'countdown' | 'recording' | 'analyzing' | 'results';
 
 export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
+    const token = useSelector((state: RootState) => state.user.accessToken);
+
     const [permission, requestPermission] = useCameraPermissions();
     const [phase, setPhase]               = useState<Phase>('setup');
     const [result, setResult]             = useState<any>(null);
@@ -538,11 +445,8 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                     repsR.current += d.reps_in_window;
                     setReps(repsR.current);
                 }
-                if (d.form_status && d.form_status !== 'unknown') {
-                    setFormStatus(d.form_status);
-                }
+                if (d.form_status && d.form_status !== 'unknown') setFormStatus(d.form_status);
 
-                // Draw skeleton whenever we get any keypoints
                 if (d.keypoints && d.keypoints.length === 132) {
                     setKeypoints(d.keypoints);
                     kpR.current.push(d.keypoints);
@@ -555,11 +459,11 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                     setKeypoints(null);
                     const g = getGuidance(exercise);
                     const st = d.camera_status || '';
-                    if      (st === 'low_light')    setWarning('Poor lighting — move to brighter area');
-                    else if (st === 'too_close')    setWarning('Too close — move ' + g.distance + ' away');
-                    else if (st === 'too_far')      setWarning('Too far — ' + g.distance + ' is ideal');
-                    else if (st === 'partial_body') setWarning('Full body not visible — ' + g.tip);
-                    else                            setWarning(d.camera_message || 'Pose not detected — check position');
+                    if      (st === 'low_light')    setWarning('Poor lighting - move to brighter area');
+                    else if (st === 'too_close')    setWarning('Too close - move ' + g.distance + ' away');
+                    else if (st === 'too_far')      setWarning('Too far - ' + g.distance + ' is ideal');
+                    else if (st === 'partial_body') setWarning('Full body not visible - ' + g.tip);
+                    else                            setWarning(d.camera_message || 'Pose not detected - check position');
                     setPoseOk(goodR.current > 0);
                 }
             } catch (_) {}
@@ -569,21 +473,51 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
     const stopAndAnalyze = async () => {
         clearInterval(interval.current);
         setPhase('analyzing'); setKeypoints(null);
+
         try {
             if (framesR.current.length < 5) {
                 setError('Do the exercise for at least 5 seconds.');
                 setPhase('setup'); return;
             }
+
             const kp = kpR.current.length >= 3 ? kpR.current : framesR.current.map(() => Array(132).fill(0.15));
+
             const res = await fetch(FORM_ANALYSIS_URL + '/live/finish', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ exercise, all_keypoints: kp }),
             });
+
             if (res.ok) {
                 const d = await res.json();
-                setResult({ ...d, total_reps: repsR.current > 0 ? repsR.current : d.total_reps });
+                const finalReps = repsR.current > 0 ? repsR.current : d.total_reps;
+                setResult({ ...d, total_reps: finalReps });
                 setPhase('results');
+
+                // Save form analysis result to backend database
+                try {
+                    if (token) {
+                        const exerciseId = EXERCISE_ID_MAP[exercise] || 1;
+                        await fetch(BACKEND_URL + '/api/v1/workouts/form-analysis', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': 'Bearer ' + token,
+                            },
+                            body: JSON.stringify({
+                                session_exercise_id: 1,
+                                exercise_id: exerciseId,
+                                rep_number: finalReps,
+                                form_status: d.overall_form || 'unknown',
+                                confidence_score: d.confidence || 0,
+                                errors_detected: d.body_part_issues?.map((i: any) => i.body_part) || [],
+                                joint_angles: {},
+                                feedback_given: d.feedback || '',
+                                keypoints_snapshot: null,
+                            }),
+                        });
+                    }
+                } catch (_) {}
             } else {
                 const e = await res.json().catch(() => ({}));
                 setError(e.detail || 'Analysis failed. Try again.');
@@ -633,7 +567,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                     setCamSize({w: width, h: height});
                 }}
             >
-                {/* Skeleton overlay — always rendered on top of camera */}
+                {/* Skeleton overlay */}
                 <SkeletonOverlay
                     keypoints={keypoints}
                     formStatus={formStatus}
@@ -654,7 +588,9 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </TouchableOpacity>
                         <Text style={s.topTitle}>Form Analysis</Text>
                         {phase === 'recording' && (
-                            <TouchableOpacity style={[s.refBtn, showRef && s.refBtnActive]} onPress={() => setShowRef(r => !r)}>
+                            <TouchableOpacity
+                                style={[s.refBtn, showRef && s.refBtnActive]}
+                                onPress={() => setShowRef(r => !r)}>
                                 <Text style={s.refBtnTxt}>Guide</Text>
                             </TouchableOpacity>
                         )}
@@ -673,13 +609,14 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         <Text style={s.camBadgeTxt}>{isFront ? 'Front Camera' : 'Back Camera'}</Text>
                     </View>
 
-                    {/* SETUP */}
+                    {/* ── SETUP ── */}
                     {phase === 'setup' && (
                         <ScrollView style={s.panel} contentContainerStyle={{paddingBottom:20}}>
                             <TouchableOpacity style={s.exPicker} onPress={() => setShowList(!showList)}>
                                 <Text style={s.exPickerLabel}>Exercise</Text>
                                 <Text style={s.exPickerVal}>{exercise}</Text>
                             </TouchableOpacity>
+
                             {showList && (
                                 <ScrollView style={s.exList} nestedScrollEnabled>
                                     {EXERCISES.map(ex => (
@@ -687,17 +624,20 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                             style={[s.exItem, ex === exercise && s.exItemActive]}
                                             onPress={() => { setExercise(ex); setShowList(false); }}>
                                             <Text style={s.exItemTxt}>{ex}</Text>
-                                            <Text style={{fontSize:16, color:'#AAA'}}>{EXERCISE_CAMERA[ex] === 'front' ? 'Front' : 'Back'}</Text>
+                                            <Text style={{fontSize:13, color:'#AAA'}}>
+                                                {EXERCISE_CAMERA[ex] === 'front' ? 'Front' : 'Back'}
+                                            </Text>
                                         </TouchableOpacity>
                                     ))}
                                 </ScrollView>
                             )}
+
                             {!showList && (
                                 <>
                                     <View style={s.guideCard}>
                                         <Text style={s.guideTitle}>Camera Setup: {exercise}</Text>
                                         <View style={[s.camTypeRow, {backgroundColor: isFront ? 'rgba(0,100,200,0.25)' : 'rgba(0,130,0,0.25)'}]}>
-                                            <Text style={s.camTypeTxt}>{g.camera} (auto-selected)</Text>
+                                            <Text style={s.camTypeTxt}>{g.camera} (auto)</Text>
                                             <TouchableOpacity style={s.switchBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
                                                 <Text style={s.switchBtnTxt}>Switch</Text>
                                             </TouchableOpacity>
@@ -721,12 +661,18 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                             </View>
                                         </View>
                                         <View style={s.divider} />
-                                        <Text style={s.guideExtra}>Blue dashed lines = target posture</Text>
+                                        <Text style={s.guideExtra}>Blue dashed = target posture</Text>
                                         <Text style={s.guideExtra}>Green lines = correct form</Text>
                                         <Text style={s.guideExtra}>Red lines = needs correction</Text>
                                         <Text style={s.guideExtra}>Good lighting + fitted clothing needed</Text>
                                     </View>
-                                    {error !== null && <View style={s.errorBox}><Text style={s.errorTxt}>{error}</Text></View>}
+
+                                    {error !== null && (
+                                        <View style={s.errorBox}>
+                                            <Text style={s.errorTxt}>{error}</Text>
+                                        </View>
+                                    )}
+
                                     <TouchableOpacity style={s.startBtn} onPress={startCountdown}>
                                         <Text style={s.startBtnTxt}>Start Session</Text>
                                     </TouchableOpacity>
@@ -735,7 +681,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </ScrollView>
                     )}
 
-                    {/* COUNTDOWN */}
+                    {/* ── COUNTDOWN ── */}
                     {phase === 'countdown' && (
                         <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
                             <Text style={s.cdLabel}>Get Ready!</Text>
@@ -745,24 +691,28 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </View>
                     )}
 
-                    {/* RECORDING */}
+                    {/* ── RECORDING ── */}
                     {phase === 'recording' && (
                         <>
                             <View style={[s.poseBanner, {
                                 backgroundColor: poseOk ? 'rgba(0,150,0,0.85)' : goodR.current > 0 ? 'rgba(180,100,0,0.85)' : 'rgba(180,0,0,0.85)'
                             }]}>
                                 <Text style={s.poseBannerTxt}>
-                                    {poseOk ? 'Skeleton detected - ' + goodFrames + ' frames' : warning || 'Detecting pose...'}
+                                    {poseOk
+                                        ? 'Skeleton detected - ' + goodFrames + ' frames'
+                                        : warning || 'Detecting pose - position yourself'}
                                 </Text>
                             </View>
+
                             {!poseOk && frameCount > 5 && (
                                 <View style={s.tipBox}>
                                     <Text style={s.tipTitle}>Fix for {exercise}:</Text>
-                                    <Text style={s.tipTxt}>{g.camera} — {g.distance}</Text>
+                                    <Text style={s.tipTxt}>{g.camera} - {g.distance}</Text>
                                     <Text style={s.tipTxt}>Angle: {g.angle}</Text>
                                     <Text style={s.tipTxt}>{g.tip}</Text>
                                 </View>
                             )}
+
                             <View style={s.statsBar}>
                                 <View style={s.statChip}>
                                     <Text style={s.statNum}>{reps}</Text>
@@ -782,10 +732,10 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                     <Text style={s.statLbl}>FRAMES</Text>
                                 </View>
                             </View>
+
                             <TouchableOpacity
                                 style={[s.stopBtn, goodFrames < 3 && s.stopBtnDisabled]}
-                                onPress={stopAndAnalyze}
-                            >
+                                onPress={stopAndAnalyze}>
                                 <Text style={s.stopBtnTxt}>
                                     {goodFrames < 3 ? 'Need ' + (3 - goodFrames) + ' more frames' : 'Stop and Analyze'}
                                 </Text>
@@ -793,7 +743,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </>
                     )}
 
-                    {/* ANALYZING */}
+                    {/* ── ANALYZING ── */}
                     {phase === 'analyzing' && (
                         <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
                             <ActivityIndicator color="#FFF" size="large" />
@@ -804,7 +754,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         </View>
                     )}
 
-                    {/* RESULTS */}
+                    {/* ── RESULTS ── */}
                     {phase === 'results' && result !== null && (
                         <ScrollView style={s.panel} contentContainerStyle={{paddingBottom:20}}>
                             <View style={[s.resultBanner, {
@@ -814,6 +764,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                     {result.overall_form === 'correct' ? 'Great Form!' : 'Room to Improve'}
                                 </Text>
                             </View>
+
                             <View style={s.scoreRow}>
                                 <View style={s.scoreCard}>
                                     <Text style={s.scoreNum}>{result.total_reps}</Text>
@@ -832,11 +783,13 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                     <Text style={s.scoreLbl}>Form</Text>
                                 </View>
                             </View>
+
                             {result.feedback && (
                                 <View style={s.feedbackBox}>
                                     <Text style={s.feedbackTxt}>{result.feedback}</Text>
                                 </View>
                             )}
+
                             {result.body_part_issues && result.body_part_issues.length > 0 && (
                                 <View style={s.section}>
                                     <Text style={s.sectionTitle}>Areas to Improve</Text>
@@ -848,6 +801,7 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                     ))}
                                 </View>
                             )}
+
                             {result.good_parts && result.good_parts.length > 0 && (
                                 <View style={s.section}>
                                     <Text style={[s.sectionTitle, {color:'#00FF88'}]}>Good Form On</Text>
@@ -856,6 +810,11 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                                     ))}
                                 </View>
                             )}
+
+                            <View style={s.savedNote}>
+                                <Text style={s.savedNoteTxt}>Result saved to your history</Text>
+                            </View>
+
                             <TouchableOpacity style={s.retryBtn} onPress={reset}>
                                 <Text style={s.retryBtnTxt}>Try Again</Text>
                             </TouchableOpacity>
@@ -879,7 +838,7 @@ const s = StyleSheet.create({
     recChip:         { backgroundColor:'#CC0000', borderRadius:10, paddingHorizontal:8, paddingVertical:3, marginRight:6 },
     recChipTxt:      { color:'#FFF', fontSize:11, fontWeight:'bold' },
     refBtn:          { backgroundColor:'rgba(0,150,255,0.3)', borderRadius:12, paddingHorizontal:10, paddingVertical:5, marginRight:6, borderWidth:1, borderColor:'rgba(0,150,255,0.5)' },
-    refBtnActive:    { backgroundColor:'rgba(0,150,255,0.7)', borderColor:'#00BFFF' },
+    refBtnActive:    { backgroundColor:'rgba(0,150,255,0.75)', borderColor:'#00BFFF' },
     refBtnTxt:       { color:'#FFF', fontSize:12, fontWeight:'600' },
     flipBtn:         { backgroundColor:'rgba(255,255,255,0.2)', borderRadius:20, paddingHorizontal:12, paddingVertical:7 },
     flipBtnTxt:      { color:'#FFF', fontSize:13, fontWeight:'bold' },
@@ -944,6 +903,8 @@ const s = StyleSheet.create({
     issuePart:       { color:'#FF6666', fontSize:13, fontWeight:'700' },
     issueTxt:        { color:'#CCC', fontSize:12, marginTop:2 },
     goodPart:        { color:'#00FF88', fontSize:13, marginBottom:3 },
+    savedNote:       { backgroundColor:'rgba(0,100,0,0.4)', borderRadius:10, padding:10, alignItems:'center', marginBottom:10 },
+    savedNoteTxt:    { color:'#00FF88', fontSize:13 },
     retryBtn:        { backgroundColor:'#8B2F3F', borderRadius:30, padding:16, alignItems:'center', marginTop:6 },
     retryBtnTxt:     { color:'#FFF', fontSize:16, fontWeight:'700' },
 });

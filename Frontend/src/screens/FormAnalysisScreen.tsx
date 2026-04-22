@@ -435,14 +435,18 @@ export default function FormAnalysisScreen({ onNavigate }: FormAnalysisProps) {
                         latest_frame_b64: photo.base64,
                         recent_frames_b64: framesR.current.slice(-10),
                         total_reps_so_far: repsR.current,
+                        // Send ALL accumulated keypoints for accurate rep counting
+                        accumulated_keypoints: kpR.current.length > 0 ? kpR.current : null,
                     }),
                 });
 
                 if (!res.ok) return;
                 const d = await res.json();
 
+                // Server counts reps on full accumulated sequence
+                // Use server count directly (it's the total, not a delta)
                 if (d.reps_in_window > 0) {
-                    repsR.current += d.reps_in_window;
+                    repsR.current = d.reps_in_window;
                     setReps(repsR.current);
                 }
                 if (d.form_status && d.form_status !== 'unknown') setFormStatus(d.form_status);

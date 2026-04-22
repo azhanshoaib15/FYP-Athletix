@@ -159,6 +159,7 @@ class LiveCheckRequest(BaseModel):
     latest_frame_b64: str
     recent_frames_b64: List[str]
     total_reps_so_far: int = 0
+    accumulated_keypoints: Optional[List[List[float]]] = None  # All keypoints so far
 
 
 class LiveCheckResponse(BaseModel):
@@ -248,7 +249,25 @@ async def live_check(req: LiveCheckRequest):
     form_status    = "unknown"
     form_conf      = 0.0
 
-    if len(req.recent_frames_b64) >= 5:
+    # ── Rep counting on ALL accumulated keypoints (not just window) ──────────
+    # If frontend sends accumulated keypoints, count reps on the full sequence
+    if req.accumulated_keypoints and len(req.accumulated_keypoints) >= 5:
+        try:
+            acc_seq = np.array(req.accumulated_keypoints, dtype=np.float32)
+            if acc_seq.shape[1] == 132:
+                acc_seq = filter_low_confidence_frames(acc_seq)
+                if len(acc_seq) >= 5:
+                    rep_info       = count_reps_from_sequence(acc_seq, req.exercise)
+                    reps_in_window = rep_info.get("reps", 0)
+                    feat_vec       = sequence_to_feature_vector(acc_seq)
+                    pred           = registry.predict(req.exercise, feat_vec)
+                    form_status    = pred["prediction"]
+                    form_conf      = pred["confidence"]
+        except Exception as e:
+            logger.warning(f"Accumulated keypoints counting error: {e}")
+
+    # Fallback: use recent frames if no accumulated keypoints
+    if reps_in_window == 0 and form_status == "unknown" and len(req.recent_frames_b64) >= 5:
         seq = frames_to_sequence(req.recent_frames_b64)
         seq = filter_low_confidence_frames(seq)
         if len(seq) >= 3:

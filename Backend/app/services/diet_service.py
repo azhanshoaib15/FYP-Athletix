@@ -108,11 +108,10 @@ async def create_progress_record(
         body_fat_percentage=data.body_fat_percentage,
         notes=data.notes,
     )
-   db.add(record)
+    db.add(record)
     await db.commit()
     await db.refresh(record)
     return record
-
 
 async def get_progress_history(
     db: AsyncSession, user_id: int, limit: int = 30

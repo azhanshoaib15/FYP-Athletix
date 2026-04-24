@@ -40,13 +40,62 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
 
             const prog = Array.isArray(progressData) ? progressData : [];
             setProgress(prog);
-            setProfile(profileData);
             setSessions(Array.isArray(sessionsData) ? sessionsData : []);
             if (prog.length > 0) setLatest(prog[0]);
 
-            // Pre-fill log form with profile values
-            if (profileData?.weight_kg) setInputWeight(String(profileData.weight_kg));
-            if (profileData?.body_fat_percentage) setInputBodyFat(String(profileData.body_fat_percentage));
+            // Auto-estimate body fat if missing (Deurenberg formula)
+            let finalProfile = profileData;
+            if (profileData && !profileData.body_fat_percentage &&
+                profileData.weight_kg && profileData.height_cm) {
+                const w = profileData.weight_kg;
+                const h = profileData.height_cm / 100;
+                const age = profileData.date_of_birth
+                    ? Math.floor((Date.now() - new Date(profileData.date_of_birth).getTime()) / (1000*60*60*24*365.25))
+                    : 25;
+                const bmi = w / (h * h);
+                const sex = profileData.gender === 'female' ? 0 : 1;
+                const bf = Math.round((1.20 * bmi + 0.23 * age - 10.8 * sex - 5.4) * 10) / 10;
+                if (bf > 0 && bf < 60) {
+                    // Save estimated body fat to backend
+                    try {
+                        await fetch(`${API_URL}/api/v1/progress/`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ weight_kg: w, body_fat_percentage: bf }),
+                        });
+                        finalProfile = { ...profileData, body_fat_percentage: bf };
+                        // Re-fetch progress to include new record
+                        const newProg = await fetch(`${API_URL}/api/v1/progress/?limit=30`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+                        const newProgData = await newProg.json();
+                        const newProgArr = Array.isArray(newProgData) ? newProgData : [];
+                        setProgress(newProgArr);
+                        if (newProgArr.length > 0) setLatest(newProgArr[0]);
+                    } catch (_) {}
+                }
+            }
+            setProfile(finalProfile);
+
+            // Pre-fill log form with latest progress or profile values
+            const latestRec = Array.isArray(progressData) && progressData.length > 0 ? progressData[0] : null;
+            if (latestRec?.weight_kg) setInputWeight(String(latestRec.weight_kg));
+            else if (finalProfile?.weight_kg) setInputWeight(String(finalProfile.weight_kg));
+
+            // Auto-calculate body fat from BMI (Deurenberg formula) if never recorded
+            const existingBF = latestRec?.body_fat_percentage || finalProfile?.body_fat_percentage;
+            if (existingBF) {
+                setInputBodyFat(String(existingBF));
+            } else if (finalProfile?.weight_kg && finalProfile?.height_cm) {
+                const bmi = finalProfile.weight_kg / Math.pow(finalProfile.height_cm / 100, 2);
+                const isFemale = finalProfile.gender === 'female' ? 1 : 0;
+                const ageYears = finalProfile.date_of_birth
+                    ? Math.floor((Date.now() - new Date(finalProfile.date_of_birth).getTime()) / (1000*60*60*24*365.25))
+                    : 25;
+                const bf = (1.20 * bmi) + (0.23 * ageYears) - (10.8 * (1 - isFemale)) - 5.4;
+                const bfRounded = Math.round(Math.max(5, Math.min(50, bf)) * 10) / 10;
+                setInputBodyFat(String(bfRounded));
+            }
         } catch (e) {
             console.error('Progress fetch error:', e);
         } finally {
@@ -72,11 +121,14 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                 }),
             });
             if (res.ok) {
-                Alert.alert('✅ Success', 'Progress logged successfully!');
                 setShowLogForm(false);
-                fetchAllData();
+                setInputWeight('');
+                setInputBodyFat('');
+                await fetchAllData();
+                Alert.alert('Success', 'Progress logged! Charts updated.');
             } else {
-                Alert.alert('Error', 'Failed to log progress');
+                const err = await res.json().catch(() => ({}));
+                Alert.alert('Error', err.detail || 'Failed to log progress');
             }
         } catch (e) {
             Alert.alert('Error', 'Connection error');

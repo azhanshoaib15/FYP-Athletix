@@ -54,14 +54,27 @@ export default function FitnessGoalSelectionScreen({ onNavigate }: FitnessGoalSe
         setSaving(true);
         try {
             const backendGoal = GOAL_MAP[selectedGoal];
-            const level = 'beginner';
+            const level = 'beginner'; // default — can be updated in settings later
 
             // Save to Redux
             dispatch(setFitnessGoal({ fitness_goal: backendGoal, fitness_level: level }));
 
             // Recalculate calories with goal adjustment
             if (token && weight_kg && height_cm) {
-                const age = 25; // fallback if not stored
+                // Try to get age from profile, fallback to 25
+                let age = 25;
+                try {
+                    const profRes = await fetch('https://fyp-athletix-production.up.railway.app/api/v1/users/me/profile', {
+                        headers: { Authorization: 'Bearer ' + token }
+                    });
+                    if (profRes.ok) {
+                        const prof = await profRes.json();
+                        if (prof.date_of_birth) {
+                            age = Math.floor((Date.now() - new Date(prof.date_of_birth).getTime()) / (1000*60*60*24*365.25));
+                        }
+                    }
+                } catch(_) {}
+                // age is now from profile or fallback 25
                 let bmr = gender === 'female'
                     ? 447.593 + (9.247 * weight_kg) + (3.098 * height_cm) - (4.330 * age)
                     : 88.362 + (13.397 * weight_kg) + (4.799 * height_cm) - (5.677 * age);

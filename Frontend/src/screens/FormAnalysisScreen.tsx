@@ -20,6 +20,18 @@ const EXERCISES = [
     'Incline beanch Press','Tricep pushdown'
 ];
 
+// Maps exercise name to DB exercise ID (from seed.py)
+const EXERCISE_ID_MAP: Record<string, number> = {
+    'PushUp':1,'Push-up':1,'Squats':2,'Squat':2,
+    'Bench Press':3,'Incline beanch Press':3,'Chest Fly':3,
+    'Bicep curl':4,'Bicep Curl':4,
+    'Lat Pulldown':5,'BackRows':5,'Pull Ups':5,
+    'Tricep pushdown':6,'Tricep Dips':6,
+    'Shoulder press':7,'Lateral Raises':7,
+    'Plank':8,'Leg Raises':8,
+    'Lunges':2,'Leg Press':2,'Leg Extension':2,
+};
+
 const EXERCISE_CAMERA: Record<string, 'front'|'back'> = {
     'Squats':'back','PushUp':'back','Bench Press':'back',
     'Bicep curl':'front','Lunges':'back','Plank':'back',
@@ -340,11 +352,13 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
                 // Save to backend
                 try {
                     if (token) {
+                        const exId = EXERCISE_ID_MAP[exercise] || 1;
                         await fetch(BACKEND_URL + '/api/v1/workouts/form-analysis', {
                             method:'POST',
                             headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
                             body: JSON.stringify({
-                                session_exercise_id:1, exercise_id:1,
+                                session_exercise_id: exId,
+                                exercise_id: exId,
                                 rep_number:0,
                                 form_status:d.overall_form||'unknown',
                                 confidence_score:d.confidence||0,

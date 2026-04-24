@@ -395,10 +395,9 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                     }),
                 });
                 Alert.alert(
-                    '✅ Logged!',
+                    'Logged!',
                     tickedCount + ' exercise' + (tickedCount > 1 ? 's' : '') +
-                    ' logged.
-Estimated ' + totalCal + ' kcal burned added to Progress.',
+                    ' logged. Estimated ' + totalCal + ' kcal burned added to Progress.',
                     [{ text: 'OK' }]
                 );
             }

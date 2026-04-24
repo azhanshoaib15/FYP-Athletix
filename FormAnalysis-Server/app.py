@@ -76,6 +76,14 @@ registry = ModelRegistry()
 mp_pose = mp.solutions.pose
 
 
+# Shared pose instance for live check (faster than creating new one each call)
+_live_pose = mp_pose.Pose(
+    static_image_mode=True,
+    model_complexity=1,
+    min_detection_confidence=0.40,
+    min_tracking_confidence=0.40,
+)
+
 def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
     try:
         img_bytes = base64.b64decode(b64)
@@ -83,10 +91,13 @@ def frame_b64_to_keypoints(b64: str) -> Optional[np.ndarray]:
         frame     = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if frame is None:
             return None
+        # Resize frame for faster processing while keeping aspect ratio
+        h, w = frame.shape[:2]
+        scale = 480 / max(h, w)
+        if scale < 1.0:
+            frame = cv2.resize(frame, (int(w*scale), int(h*scale)))
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        with mp_pose.Pose(static_image_mode=True, model_complexity=1,
-                          min_detection_confidence=0.45) as pose:
-            res = pose.process(rgb)
+        res = _live_pose.process(rgb)
         if res.pose_landmarks:
             return np.array([
                 v for lm in res.pose_landmarks.landmark

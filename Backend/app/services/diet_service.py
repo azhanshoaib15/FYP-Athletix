@@ -1,6 +1,7 @@
 from typing import Optional, List
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, desc
 from sqlalchemy.orm import selectinload
 
 from app.models.models import (
@@ -69,9 +70,9 @@ async def create_diet_plan(
 
     if user_profile:
         daily_calories = user_profile.daily_calorie_target
-        protein_g = user_profile.protein_target_g
-        carbs_g = user_profile.carbs_target_g
-        fat_g = user_profile.fat_target_g
+        protein_g      = user_profile.protein_target_g
+        carbs_g        = user_profile.carbs_target_g
+        fat_g          = user_profile.fat_target_g
 
     plan = DietPlan(
         user_id=user_id,
@@ -102,16 +103,50 @@ async def create_diet_plan(
 async def create_progress_record(
     db: AsyncSession, user_id: int, data: ProgressRecordCreate
 ) -> ProgressRecord:
+    # ── Streak calculation ───────────────────────────────────────────────────
+    # Get the most recent progress record for this user
+    last_result = await db.execute(
+        select(ProgressRecord)
+        .where(ProgressRecord.user_id == user_id)
+        .order_by(desc(ProgressRecord.recorded_at))
+        .limit(1)
+    )
+    last = last_result.scalar_one_or_none()
+
+    new_streak = 1
+    if last and last.recorded_at:
+        # Normalise timezone
+        last_dt = last.recorded_at.replace(tzinfo=timezone.utc) \
+            if last.recorded_at.tzinfo is None else last.recorded_at
+        today   = datetime.now(timezone.utc)
+        diff    = (today.date() - last_dt.date()).days
+
+        if diff == 0:
+            # Same day — keep existing streak
+            new_streak = max(1, last.streak_days or 1)
+        elif diff == 1:
+            # Consecutive day — increment
+            new_streak = (last.streak_days or 0) + 1
+        else:
+            # Gap of 2+ days — reset
+            new_streak = 1
+
+    # ── Build record ─────────────────────────────────────────────────────────
     record = ProgressRecord(
         user_id=user_id,
-        weight_kg=data.weight_kg,
-        body_fat_percentage=data.body_fat_percentage,
-        notes=data.notes,
+        weight_kg=getattr(data, 'weight_kg', None),
+        body_fat_percentage=getattr(data, 'body_fat_percentage', None),
+        workouts_completed=getattr(data, 'workouts_completed', 0) or 0,
+        total_workout_minutes=getattr(data, 'total_workout_minutes', 0) or 0,
+        total_calories_burned=getattr(data, 'total_calories_burned', 0.0) or 0.0,
+        streak_days=new_streak,
+        notes=getattr(data, 'notes', None),
     )
     db.add(record)
     await db.commit()
     await db.refresh(record)
     return record
+
 
 async def get_progress_history(
     db: AsyncSession, user_id: int, limit: int = 30

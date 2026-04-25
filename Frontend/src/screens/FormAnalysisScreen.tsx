@@ -609,34 +609,58 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
                     {/* ── RESULTS ── */}
                     {phase==='results' && result && (
                         <ScrollView style={s.panel} contentContainerStyle={{paddingBottom:30}}>
-                            <View style={[s.resultBanner, {
-                                backgroundColor: result.overall_form==='correct' ? '#0a5c2a' : '#5c0a0a'
-                            }]}>
-                                <Text style={s.resultIcon}>{result.overall_form==='correct'?'🏆':'💪'}</Text>
-                                <Text style={s.resultTitle}>
-                                    {result.overall_form==='correct' ? 'Great Form!' : 'Room to Improve'}
-                                </Text>
-                            </View>
+                            {/* Handle insufficient data / uncertain */}
+                            {(result.overall_form === 'insufficient_data' || result.overall_form === 'uncertain') ? (
+                                <>
+                                    <View style={[s.resultBanner, {backgroundColor:'#2a2a00'}]}>
+                                        <Text style={s.resultIcon}>⚠️</Text>
+                                        <Text style={s.resultTitle}>
+                                            {result.overall_form === 'insufficient_data' ? 'Not Enough Data' : 'Low Confidence'}
+                                        </Text>
+                                    </View>
+                                    <View style={s.feedbackBox}>
+                                        <Text style={s.feedbackTxt}>{result.feedback}</Text>
+                                    </View>
+                                    <View style={s.section}>
+                                        <Text style={s.sectionTitle}>Tips for better results</Text>
+                                        <Text style={[s.issueTxt, {marginLeft:0}]}>• Record for at least 10-15 seconds</Text>
+                                        <Text style={[s.issueTxt, {marginLeft:0}]}>• Ensure full body is visible in frame</Text>
+                                        <Text style={[s.issueTxt, {marginLeft:0}]}>• Use good lighting — avoid dark rooms</Text>
+                                        <Text style={[s.issueTxt, {marginLeft:0}]}>• Stand at the correct angle for this exercise</Text>
+                                    </View>
+                                </>
+                            ) : (
+                                <>
+                                    <View style={[s.resultBanner, {
+                                        backgroundColor: result.overall_form==='correct' ? '#0a5c2a' : '#5c0a0a'
+                                    }]}>
+                                        <Text style={s.resultIcon}>{result.overall_form==='correct'?'🏆':'💪'}</Text>
+                                        <Text style={s.resultTitle}>
+                                            {result.overall_form==='correct' ? 'Great Form!' : 'Room to Improve'}
+                                        </Text>
+                                    </View>
 
-                            {/* Confidence score */}
-                            <View style={s.scoreRow}>
-                                <View style={[s.scoreBox, {borderColor:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
-                                    <Text style={[s.scoreNum, {color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
-                                        {Math.round((result.confidence||0)*100)}%
-                                    </Text>
-                                    <Text style={s.scoreLbl}>Form Score</Text>
-                                </View>
-                                <View style={s.scoreBox}>
-                                    <Text style={[s.scoreNum, {fontSize:14, color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
-                                        {result.overall_form==='correct'?'✓ Correct':'✗ Incorrect'}
-                                    </Text>
-                                    <Text style={s.scoreLbl}>Form Status</Text>
-                                </View>
-                                <View style={s.scoreBox}>
-                                    <Text style={[s.scoreNum, {color:'#00BFFF'}]}>{kpR.current.length}</Text>
-                                    <Text style={s.scoreLbl}>Frames</Text>
-                                </View>
-                            </View>
+                                    {/* Confidence score */}
+                                    <View style={s.scoreRow}>
+                                        <View style={[s.scoreBox, {borderColor:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
+                                            <Text style={[s.scoreNum, {color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
+                                                {Math.round((result.confidence||0)*100)}%
+                                            </Text>
+                                            <Text style={s.scoreLbl}>Form Score</Text>
+                                        </View>
+                                        <View style={s.scoreBox}>
+                                            <Text style={[s.scoreNum, {fontSize:14, color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
+                                                {result.overall_form==='correct'?'✓ Correct':'✗ Incorrect'}
+                                            </Text>
+                                            <Text style={s.scoreLbl}>Form Status</Text>
+                                        </View>
+                                        <View style={s.scoreBox}>
+                                            <Text style={[s.scoreNum, {color:'#00BFFF'}]}>{kpR.current.length}</Text>
+                                            <Text style={s.scoreLbl}>Frames</Text>
+                                        </View>
+                                    </View>
+                                </>
+                            )}
 
                             {/* Overall feedback */}
                             {result.feedback && (
@@ -673,9 +697,12 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
                                 </View>
                             )}
 
-                            <View style={s.savedBadge}>
-                                <Text style={s.savedTxt}>✓ Analysis saved to your history</Text>
-                            </View>
+                            {/* Only show saved badge for actual results */}
+                            {result.overall_form !== 'insufficient_data' && result.overall_form !== 'uncertain' && (
+                                <View style={s.savedBadge}>
+                                    <Text style={s.savedTxt}>✓ Analysis saved to your history</Text>
+                                </View>
+                            )}
 
                             <TouchableOpacity style={s.retryBtn} onPress={reset}>
                                 <Text style={s.retryTxt}>🔄  Analyze Again</Text>

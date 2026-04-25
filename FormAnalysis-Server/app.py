@@ -306,6 +306,70 @@ async def live_check(req: LiveCheckRequest):
     )
 
 
+@app.post("/live/finish")
+async def live_finish_patched(req: dict):
+    """
+    Patched finish endpoint with confidence gate.
+    Requires at least 8 good keypoint frames before classifying.
+    """
+    exercise     = req.get("exercise", "Squats")
+    all_keypoints = req.get("all_keypoints", [])
+
+    # Filter out zero/low-confidence frames
+    valid_kp = []
+    for kp in all_keypoints:
+        arr = np.array(kp, dtype=np.float32)
+        if arr.shape[0] == 132:
+            # Check mean visibility of key joints
+            vis_vals = arr[3::4]  # every 4th value is visibility
+            if np.mean(vis_vals) > 0.25:
+                valid_kp.append(arr)
+
+    MIN_GOOD_FRAMES = 8
+
+    if len(valid_kp) < MIN_GOOD_FRAMES:
+        return {
+            "overall_form": "insufficient_data",
+            "confidence": 0.0,
+            "feedback": f"Not enough valid pose frames detected ({len(valid_kp)}/{MIN_GOOD_FRAMES} required). Make sure your full body is visible and lighting is good.",
+            "body_part_issues": [],
+            "good_parts": [],
+            "total_reps": 0,
+        }
+
+    seq = np.stack(valid_kp)
+    seq = filter_low_confidence_frames(seq)
+
+    feat_vec = sequence_to_feature_vector(seq)
+    pred     = registry.predict(exercise, feat_vec)
+
+    # Confidence gate — if model not confident, mark as uncertain
+    confidence = pred["confidence"]
+    if confidence < 0.58:
+        return {
+            "overall_form": "uncertain",
+            "confidence": confidence,
+            "feedback": "Analysis confidence is low. Try recording for longer with better lighting and full body in frame.",
+            "body_part_issues": [],
+            "good_parts": [],
+            "total_reps": 0,
+        }
+
+    body_issues = analyze_body_parts(seq, exercise, pred["prediction"])
+
+    return {
+        "overall_form":    pred["prediction"],
+        "confidence":      confidence,
+        "feedback":        f"You completed {exercise}. " + (
+            "Good form overall — keep it up!" if pred["prediction"] == "correct"
+            else "Focus on the areas below to improve your form."
+        ),
+        "body_part_issues": body_issues.get("issues", []),
+        "good_parts":       body_issues.get("good_parts", []),
+        "total_reps":       0,
+    }
+
+
 @app.post("/live/finish", response_model=FinishResponse)
 async def live_finish(req: FinishRequest):
     if len(req.all_keypoints) < 3:

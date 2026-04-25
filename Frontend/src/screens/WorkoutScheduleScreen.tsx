@@ -342,7 +342,11 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
     const plan        = PLANS[planKey];
     const accent      = GOAL_COLORS[planKey] || '#390404';
 
-    const [expandedDay, setExpandedDay]           = useState<string|null>(null);
+    // Determine today's workout day (Mon=Day1 ... Sun=Day7)
+    const todayDayNum = new Date().getDay(); // 0=Sun,1=Mon...6=Sat
+    const todayWorkoutDay = 'Day ' + (todayDayNum === 0 ? 7 : todayDayNum);
+
+    const [expandedDay, setExpandedDay]           = useState<string|null>(todayWorkoutDay);
     // ticked: key = "Day1_ExerciseName"
     const [ticked, setTicked]                     = useState<Record<string,boolean>>({});
     const [savingDay, setSavingDay]               = useState<string|null>(null);
@@ -442,11 +446,21 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                                 s.dayRow,
                                 item.isRest && s.dayRowRest,
                                 isExpanded && s.dayRowExpanded,
+                                item.day === todayWorkoutDay && !item.isRest && s.dayRowToday,
                             ]}
                             onPress={() => toggleExpand(item.day, item.isRest)}
                             activeOpacity={0.8}>
                             <View style={s.dayLeft}>
-                                <Text style={s.dayTxt}>{item.day}</Text>
+                                <View style={{flexDirection:'row', alignItems:'center', gap:8, marginBottom:6}}>
+                                    <Text style={[s.dayTxt, item.day===todayWorkoutDay && !item.isRest && {color:'#FFD700'}]}>
+                                        {item.day}
+                                    </Text>
+                                    {item.day === todayWorkoutDay && !item.isRest && (
+                                        <View style={s.todayBadge}>
+                                            <Text style={s.todayBadgeTxt}>TODAY</Text>
+                                        </View>
+                                    )}
+                                </View>
                                 <View style={[s.focusBadge, item.isRest && { backgroundColor:'#555' }]}>
                                     <Text style={s.focusTxt}>{item.focus}</Text>
                                 </View>
@@ -550,6 +564,9 @@ const s = StyleSheet.create({
     dayRow:         { backgroundColor:'#1a0505', borderRadius:14, padding:16, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderWidth:1, borderColor:'#390404' },
     dayRowRest:     { backgroundColor:'#1a1a1a', borderColor:'#333' },
     dayRowExpanded: { borderBottomLeftRadius:0, borderBottomRightRadius:0, borderColor:'#8B2F3F' },
+    dayRowToday:    { borderColor:'#FFD700', borderWidth:2, backgroundColor:'#1f1800' },
+    todayBadge:     { backgroundColor:'#FFD700', borderRadius:6, paddingHorizontal:6, paddingVertical:2 },
+    todayBadgeTxt:  { color:'#000', fontSize:10, fontWeight:'800', letterSpacing:0.5 },
     dayLeft:        { flex:1 },
     dayTxt:         { fontWeight:'700', fontSize:17, color:'#FFF', marginBottom:6 },
     focusBadge:     { backgroundColor:'#8B2F3F', alignSelf:'flex-start', borderRadius:8, paddingHorizontal:10, paddingVertical:3 },

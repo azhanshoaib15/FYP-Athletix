@@ -158,6 +158,20 @@ async def get_me(current_user=Depends(get_current_user)):
 
 # ── OTP routes ────────────────────────────────────────────────────────────────
 
+@router.get("/debug-smtp", status_code=200)
+async def debug_smtp():
+    """Temporary debug endpoint to check SMTP env vars."""
+    import os
+    smtp_user = os.environ.get("SMTP_USER", "NOT_SET")
+    smtp_pass = os.environ.get("SMTP_PASS", "NOT_SET")
+    smtp_from = os.environ.get("SMTP_FROM", "NOT_SET")
+    return {
+        "SMTP_USER": smtp_user[:5] + "***" if smtp_user != "NOT_SET" else "NOT_SET",
+        "SMTP_PASS": "SET(" + str(len(smtp_pass)) + "chars)" if smtp_pass != "NOT_SET" else "NOT_SET",
+        "SMTP_FROM": smtp_from[:5] + "***" if smtp_from != "NOT_SET" else "NOT_SET",
+    }
+
+
 @router.post("/send-otp", status_code=200)
 async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
     """

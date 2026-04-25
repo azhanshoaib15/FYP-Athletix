@@ -24,12 +24,10 @@ import SignUpScreen from "./src/screens/SignUpScreen";
 import VerificationScreen from "./src/screens/VerificationScreen";
 import WorkoutScheduleScreen from "./src/screens/WorkoutScheduleScreen";
 
-type ScreenType = "display" | "signin" | "signup" | "dashboard" | "gender" | "verification" | "personalinfo" | "fitnessgoal" | "settings" | "formAnalysis" | "workoutSchedule" | "progress" | "chat" | "authSelection";
-
 function AppContent() {
     const dispatch = useDispatch();
     const { accessToken } = useSelector((state: RootState) => state.user);
-    const [currentView, setCurrentView] = useState<ScreenType>("display");
+    const [currentView, setCurrentView] = useState<any>("display");
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -59,26 +57,50 @@ function AppContent() {
     }
 
     const renderScreen = () => {
-        switch (currentView) {
-            case "signin": return <SignInScreen onNavigate={setCurrentView} />;
-            case "signup": return <SignUpScreen onNavigate={setCurrentView} />;
-            case "gender": return <GenderSelectionScreen onNavigate={setCurrentView} />;
-            case "personalinfo": return <PersonalInfoScreen onNavigate={setCurrentView} />;
-            case "fitnessgoal": return <FitnessGoalSelectionScreen onNavigate={setCurrentView} />;
-            case "verification": return <VerificationScreen onNavigate={setCurrentView} />;
-            case "settings": return <SettingsScreen onNavigate={setCurrentView} />;
-            case "formAnalysis": return <FormAnalysisScreen onNavigate={setCurrentView} />;
-            case "workoutSchedule": return <WorkoutScheduleScreen onNavigate={setCurrentView} />;
-            case "progress": return <ProgressScreen onNavigate={setCurrentView} />;
-            case "chat": return <ChatScreen onNavigate={setCurrentView} />;
-            case "authSelection": return <AuthSelectionScreen onNavigate={setCurrentView} />;
+        // Support both string navigation ("dashboard") and object navigation
+        // ({ screen: "verification", email: "...", password: "..." })
+        const screenName = typeof currentView === 'object' ? currentView.screen : currentView;
+
+        switch (screenName) {
+            case "signin":
+                return <SignInScreen onNavigate={setCurrentView} />;
+            case "signup":
+                return <SignUpScreen onNavigate={setCurrentView} />;
+            case "verification":
+                return (
+                    <VerificationScreen
+                        onNavigate={setCurrentView}
+                        email={typeof currentView === 'object' ? currentView.email : ''}
+                        password={typeof currentView === 'object' ? currentView.password : ''}
+                        username={typeof currentView === 'object' ? currentView.username : ''}
+                    />
+                );
+            case "gender":
+                return <GenderSelectionScreen onNavigate={setCurrentView} />;
+            case "personalinfo":
+                return <PersonalInfoScreen onNavigate={setCurrentView} />;
+            case "fitnessgoal":
+                return <FitnessGoalSelectionScreen onNavigate={setCurrentView} />;
+            case "settings":
+                return <SettingsScreen onNavigate={setCurrentView} />;
+            case "formAnalysis":
+                return <FormAnalysisScreen onNavigate={setCurrentView} />;
+            case "workoutSchedule":
+                return <WorkoutScheduleScreen onNavigate={setCurrentView} />;
+            case "progress":
+                return <ProgressScreen onNavigate={setCurrentView} />;
+            case "chat":
+                return <ChatScreen onNavigate={setCurrentView} />;
+            case "authSelection":
+                return <AuthSelectionScreen onNavigate={setCurrentView} />;
             case "dashboard":
                 return (
                     <NavigationContainer>
                         <MainTabNavigator onNavigate={setCurrentView} />
                     </NavigationContainer>
                 );
-            default: return <DisplayScreen onNavigate={setCurrentView} />;
+            default:
+                return <DisplayScreen onNavigate={setCurrentView} />;
         }
     };
 

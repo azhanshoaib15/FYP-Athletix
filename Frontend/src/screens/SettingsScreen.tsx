@@ -114,6 +114,10 @@ export default function SettingsScreen({ onNavigate }: { onNavigate: (screen: an
                         <Row label="Fat"       value={profile?.fat_target_g         ? `${profile.fat_target_g} g`            : "N/A"} />
                     </View>
 
+                    <TouchableOpacity style={styles.editButton} onPress={() => onNavigate("editProfile")}>
+                        <Text style={styles.editButtonText}>Edit Profile</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
                         <Text style={styles.logoutButtonText}>Log Out</Text>
                     </TouchableOpacity>
@@ -135,6 +139,8 @@ const styles = StyleSheet.create({
     infoRow:            { flexDirection:"row", justifyContent:"space-between", alignItems:"center", paddingVertical:12, paddingHorizontal:15, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:10, marginBottom:8, borderWidth:1, borderColor:"rgba(255,255,255,0.15)" },
     label:              { fontSize:15, color:"#FFFFFF", fontWeight:"600" },
     value:              { fontSize:15, color:"#CCCCCC" },
+    editButton:         { width:"100%", height:50, backgroundColor:"#1a1a3a", borderRadius:10, justifyContent:"center", alignItems:"center", marginTop:10, borderWidth:1, borderColor:"rgba(255,255,255,0.2)" },
+    editButtonText:     { color:"#FFFFFF", fontSize:18, fontWeight:"bold" },
     logoutButton:       { width:"100%", height:50, backgroundColor:"#D32F2F", borderRadius:10, justifyContent:"center", alignItems:"center", marginTop:10 },
     logoutButtonText:   { color:"#FFFFFF", fontSize:18, fontWeight:"bold" },
 });

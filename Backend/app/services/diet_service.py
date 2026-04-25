@@ -132,14 +132,24 @@ async def create_progress_record(
             new_streak = 1
 
     # ── Build record ─────────────────────────────────────────────────────────
+    # Calculate XP points
+    workouts_done = getattr(data, 'workouts_completed', 0) or 0
+    cal_burned    = getattr(data, 'total_calories_burned', 0.0) or 0.0
+    # XP: 10 per workout + 1 per 100 kcal + 5 bonus per streak day
+    new_xp = (workouts_done * 10) + int(cal_burned / 100) + (new_streak * 5)
+    # Add to previous XP total
+    prev_xp = last.xp_points if last and last.xp_points else 0
+    total_xp = prev_xp + new_xp
+
     record = ProgressRecord(
         user_id=user_id,
         weight_kg=getattr(data, 'weight_kg', None),
         body_fat_percentage=getattr(data, 'body_fat_percentage', None),
-        workouts_completed=getattr(data, 'workouts_completed', 0) or 0,
+        workouts_completed=workouts_done,
         total_workout_minutes=getattr(data, 'total_workout_minutes', 0) or 0,
-        total_calories_burned=getattr(data, 'total_calories_burned', 0.0) or 0.0,
+        total_calories_burned=cal_burned,
         streak_days=new_streak,
+        xp_points=total_xp,
         notes=getattr(data, 'notes', None),
     )
     db.add(record)

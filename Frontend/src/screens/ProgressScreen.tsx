@@ -328,7 +328,7 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                         domainPadding={{ x: 20 }}
                     >
                         <VictoryAxis style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 12 }, grid: { stroke: 'none' } }} />
-                        <VictoryAxis dependentAxis tickFormat={(t) => Math.round(t)} style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 12 }, grid: { stroke: '#333', strokeDasharray: '4,4' } }} />
+                        <VictoryAxis dependentAxis tickCount={4} tickFormat={(t) => Math.round(t) === t ? Math.round(t) : ''} style={{ axis: { stroke: '#FFF' }, tickLabels: { fill: '#FFF', fontSize: 12 }, grid: { stroke: '#333', strokeDasharray: '4,4' } }} />
                         <VictoryBar data={weeklyData} style={{ data: { fill: '#6A040F' } }} cornerRadius={{ top: 5 }} />
                     </VictoryChart>
                 )}

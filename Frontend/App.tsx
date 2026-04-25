@@ -23,6 +23,7 @@ import SignInScreen from "./src/screens/SignInScreen";
 import SignUpScreen from "./src/screens/SignUpScreen";
 import VerificationScreen from "./src/screens/VerificationScreen";
 import WorkoutScheduleScreen from "./src/screens/WorkoutScheduleScreen";
+import EditProfileScreen from "./src/screens/EditProfileScreen";
 
 function AppContent() {
     const dispatch = useDispatch();
@@ -83,6 +84,8 @@ function AppContent() {
                 return <FitnessGoalSelectionScreen onNavigate={setCurrentView} />;
             case "settings":
                 return <SettingsScreen onNavigate={setCurrentView} />;
+            case "editProfile":
+                return <EditProfileScreen onNavigate={setCurrentView} />;
             case "formAnalysis":
                 return <FormAnalysisScreen onNavigate={setCurrentView} />;
             case "workoutSchedule":

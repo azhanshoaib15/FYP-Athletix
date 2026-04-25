@@ -106,8 +106,14 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
         logger.info(f"OTP email sent to {to_email}")
         return True
 
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP AUTH FAILED for {to_email}: {e} - Check Gmail App Password")
+        return False
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP ERROR for {to_email}: {e}")
+        return False
     except Exception as e:
-        logger.error(f"SMTP error sending OTP to {to_email}: {e}")
+        logger.error(f"SMTP general error for {to_email}: {type(e).__name__}: {e}")
         return False
 
 # ── Existing routes ───────────────────────────────────────────────────────────

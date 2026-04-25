@@ -83,7 +83,7 @@ export default function PersonalInfoScreen({ onNavigate }: PersonalInfoScreenPro
             }
             onNavigate('fitnessgoal');
         } catch (e) {
-            console.error('Save personal info error:', e);
+            // silent - still navigate forward
             onNavigate('fitnessgoal'); // still proceed even if save fails
         } finally {
             setSaving(false);

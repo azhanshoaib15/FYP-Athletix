@@ -22,7 +22,7 @@ export default function SettingsScreen({ onNavigate }: { onNavigate: (screen: an
             });
             if (res.ok) setProfile(await res.json());
         } catch (e) {
-            console.error("Failed to load profile", e);
+            // silent fail
         } finally {
             setLoading(false);
         }

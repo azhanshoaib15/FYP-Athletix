@@ -99,7 +99,7 @@ export default function FitnessGoalSelectionScreen({ onNavigate }: FitnessGoalSe
             }
             onNavigate('dashboard');
         } catch (e) {
-            console.error('Save fitness goal error:', e);
+            // silent fail
             onNavigate('dashboard');
         } finally {
             setSaving(false);

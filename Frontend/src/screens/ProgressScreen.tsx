@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
     ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet,
     Text, TextInput, TouchableOpacity, View
@@ -84,7 +84,7 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
             if (latestBF)     setInputBodyFat(String(latestBF));
 
         } catch (e) {
-            console.error('Progress fetch error:', e);
+            // silent fail — user sees loading state
         } finally {
             setLoading(false);
         }
@@ -223,11 +223,11 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
         };
     };
 
-    // ── Derived values ────────────────────────────────────────────────────────
-    const weeklyData   = buildWeeklyData();
-    const weightData   = buildWeightData();
-    const macroResult  = buildMacroData();
-    const hasWorkouts  = weeklyData.some((d: any) => d.y > 0);
+    // ── Derived values (memoized for performance) ─────────────────────────
+    const weeklyData  = useMemo(() => buildWeeklyData(),  [sessions, progress]);
+    const weightData  = useMemo(() => buildWeightData(),  [progress]);
+    const macroResult = useMemo(() => buildMacroData(),   [profile, progress]);
+    const hasWorkouts = useMemo(() => weeklyData.some((d: any) => d.y > 0), [weeklyData]);
 
     const currentWeight  = latest?.weight_kg   || profile?.weight_kg   || null;
     const currentHeight  = profile?.height_cm  || null;
@@ -255,7 +255,7 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
     }
 
     return (
-        <ScrollView style={st.container} contentContainerStyle={st.content}>
+        <ScrollView style={st.container} contentContainerStyle={st.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <TouchableOpacity style={st.backBtn} onPress={() => onNavigate('dashboard')}>
                 <Text style={st.backTxt}>{'< Back'}</Text>
             </TouchableOpacity>

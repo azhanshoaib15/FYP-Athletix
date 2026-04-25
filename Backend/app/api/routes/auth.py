@@ -1,6 +1,7 @@
 """
 Auth Routes: /api/v1/auth/
 """
+import os
 import random
 import string
 import smtplib
@@ -54,6 +55,9 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
         smtp_port = int(os.environ.get("SMTP_PORT", "587"))
         smtp_from = os.environ.get("SMTP_FROM", smtp_user).strip()
+
+        logger.info(f"SMTP_USER from env: '{smtp_user[:10]}...' len={len(smtp_user)}")
+        logger.info(f"SMTP_PASS from env: len={len(smtp_pass)}")
 
         if not smtp_user or not smtp_pass:
             logger.warning("SMTP not configured — OTP will be returned in dev mode")

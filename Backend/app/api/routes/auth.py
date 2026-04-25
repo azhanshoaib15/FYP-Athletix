@@ -48,11 +48,12 @@ def _generate_otp() -> str:
 def _send_otp_email(to_email: str, otp: str) -> bool:
     """Send OTP via SMTP. Returns True on success, False on failure."""
     try:
-        smtp_user = getattr(settings, "SMTP_USER", "")
-        smtp_pass = getattr(settings, "SMTP_PASS", "")
-        smtp_host = getattr(settings, "SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(getattr(settings, "SMTP_PORT", 587))
-        smtp_from = getattr(settings, "SMTP_FROM", smtp_user)
+        # Read directly from os.environ to bypass lru_cache on settings
+        smtp_user = os.environ.get("SMTP_USER", "").strip()
+        smtp_pass = os.environ.get("SMTP_PASS", "").strip()
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+        smtp_from = os.environ.get("SMTP_FROM", smtp_user).strip()
 
         if not smtp_user or not smtp_pass:
             logger.warning("SMTP not configured — OTP will be returned in dev mode")

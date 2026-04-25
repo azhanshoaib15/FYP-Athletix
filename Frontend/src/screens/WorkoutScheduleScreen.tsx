@@ -394,7 +394,7 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                     body: JSON.stringify({
                         total_calories_burned: totalCal,
                         workouts_completed: 1,
-                        total_workout_minutes: tickedCount * 10,
+                        total_workout_minutes: tickedCount * 12,
                         notes: item.day + ' — ' + item.focus + ' (' + tickedCount + ' exercises)',
                     }),
                 });

@@ -138,10 +138,12 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
     };
 
     // Build weekly workout chart data
+    // Counts both workout sessions AND progress records with workouts_completed > 0
     const buildWeeklyData = () => {
         const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
         const counts = [0, 0, 0, 0, 0, 0, 0];
         const now = new Date();
+        // Count from workout sessions
         sessions.forEach((s: any) => {
             const d = new Date(s.started_at);
             const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
@@ -149,6 +151,19 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
                 const dayIndex = d.getDay();
                 const mappedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
                 counts[mappedIndex]++;
+            }
+        });
+        // Also count from progress records with workouts_completed > 0
+        // (logged when user ticks exercises in workout schedule)
+        progress.forEach((p: any) => {
+            if (p.workouts_completed && p.workouts_completed > 0) {
+                const d = new Date(p.recorded_at);
+                const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+                if (diff < 7) {
+                    const dayIndex = d.getDay();
+                    const mappedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
+                    counts[mappedIndex] = Math.min(counts[mappedIndex] + 1, 5);
+                }
             }
         });
         return days.map((x, i) => ({ x, y: counts[i] }));
@@ -196,7 +211,9 @@ export default function ProgressScreen({ onNavigate }: ProgressScreenProps) {
     const currentBodyFat = latest?.body_fat_percentage || profile?.body_fat_percentage || null;
     const streak = latest?.streak_days || 0;
     const xp = latest?.xp_points || 0;
-    const totalWorkouts = sessions.length;
+    // Count workouts from sessions + progress logs where user ticked exercises
+    const progressWorkouts = progress.filter((p: any) => p.workouts_completed > 0).length;
+    const totalWorkouts = Math.max(sessions.length, progressWorkouts);
 
     if (loading) {
         return (

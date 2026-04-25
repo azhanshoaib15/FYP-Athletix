@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Alert, LayoutAnimation, Platform, ScrollView, StyleSheet,
     Text, TouchableOpacity, UIManager, View
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store/store';
 
@@ -19,7 +20,7 @@ interface WorkoutScheduleScreenProps {
 interface Exercise {
     name: string;
     reps: string;
-    calories: number; // estimated kcal from exercises.jsonl
+    calories: number;
 }
 
 interface DaySchedule {
@@ -29,309 +30,165 @@ interface DaySchedule {
     exercises: Exercise[];
 }
 
-// ── Calorie map from exercises.jsonl ──────────────────────────────────────────
-// Values extracted from Estimated calorie burn field per exercise
+// ── Calorie map ───────────────────────────────────────────────────────────────
 
 const CALORIE_MAP: Record<string, number> = {
-    // Squats / Legs
-    'squats':               178,
-    'squat':                178,
-    'bodyweight squat':     188,
-    'lunges':               280,
-    'lunge':                280,
-    'walking lunge':        280,
-    'reverse lunge':         90,
-    'leg press':            212,
-    'single leg press':      51,
-    'leg extension':        265,
-    'leg raises':            93,
-    'hanging leg raise':     93,
-    'hamstring curl':       263,
-    'lying leg curl':       263,
-    'calf raises':          209,
-    'standing calf raise':  209,
-    'step-ups':             145,
-    'step ups':             145,
-    // Push
-    'push-up':              238,
-    'push-ups':             238,
-    'push up':              238,
-    'pushup':               238,
-    'bench press':          152,
-    'barbell bench press':  152,
-    'dumbbell bench press': 398,
-    'db press':             398,
-    'db chest press':       398,
-    'incline db press':     156,
-    'incline dumbbell press':156,
-    'incline bench press':  121,
-    'incline beanch press': 121,
-    'decline bench press':  121,
-    'shoulder press':       138,
-    'overhead press':       138,
-    'dumbbell shoulder press':138,
-    'lateral raises':       314,
-    'lateral raise':        314,
-    'tricep pushdown':      387,
-    'tricep dips':          237,
-    'tricep push-up':       238,
-    'overhead tricep extension': 102,
-    'dips':                 301,
-    // Pull
-    'pull-ups':             241,
-    'pull-up':              241,
-    'pull ups':             241,
-    'wide grip pull-up':    364,
-    'chin-up':              326,
-    'lat pulldown':         363,
-    'wide grip lat pulldown': 71,
-    'barbell row':          302,
-    'rows':                 302,
-    'backrows':             302,
-    'back rows':            302,
-    'seated row':           394,
-    'seated cable row':     394,
-    'barbell rows':         302,
-    'bicep curl':           267,
-    'bicep curls':          267,
-    'dumbbell curl':        267,
-    'barbell curl':         240,
-    'face pulls':           224,
-    'face pull':            224,
-    'deadlift':             104,
-    'romanian deadlift':    148,
-    // Core / Cardio
-    'plank':                183,
-    'side plank':           333,
-    'core circuit':         150,
-    'mountain climbers':    200,
-    'burpees':              300,
-    'kb swings':            250,
-    'battle ropes':         300,
-    'sprint':               400,
-    'jogging':              300,
-    'cycling':              250,
-    'swimming':             300,
-    'incline walk':         200,
-    'walk':                 150,
-    'yoga':                  80,
-    'stretching':            50,
-    'foam rolling':          40,
-    'easy jog':             200,
-    'agility ladder':       250,
-    'cone drills':          200,
-    'box jumps':            350,
-    'power cleans':         300,
-    'sprint drills':        400,
-    'circuit training':     300,
+    'squats':178,'squat':178,'lunges':280,'lunge':280,'leg press':212,'leg extension':265,
+    'leg raises':93,'hamstring curl':263,'calf raises':209,'step-ups':145,'step ups':145,
+    'push-up':238,'push-ups':238,'push up':238,'pushup':238,'bench press':152,
+    'dumbbell bench press':398,'db press':398,'db chest press':398,'incline db press':156,
+    'incline dumbbell press':156,'incline bench press':121,'incline beanch press':121,
+    'shoulder press':138,'overhead press':138,'lateral raises':314,'lateral raise':314,
+    'tricep pushdown':387,'tricep dips':237,'dips':301,'pull-ups':241,'pull-up':241,
+    'pull ups':241,'lat pulldown':363,'barbell row':302,'rows':302,'backrows':302,
+    'back rows':302,'seated row':394,'barbell rows':302,'bicep curl':267,'bicep curls':267,
+    'dumbbell curl':267,'barbell curl':240,'deadlift':104,'romanian deadlift':148,
+    'face pulls':224,'plank':183,'core circuit':150,'mountain climbers':200,
+    'burpees':300,'kb swings':250,'battle ropes':300,'sprint':400,'jogging':300,
+    'cycling':250,'swimming':300,'incline walk':200,'walk':150,'yoga':80,
+    'stretching':50,'foam rolling':40,'easy jog':200,'agility ladder':250,
+    'box jumps':350,'power cleans':300,'sprint drills':400,'circuit training':300,
+    'easy jogging':200,'power clean':300,
 };
 
 const getCalories = (name: string): number => {
     const key = name.toLowerCase().trim();
     if (CALORIE_MAP[key]) return CALORIE_MAP[key];
-    // Partial match
     for (const [k, v] of Object.entries(CALORIE_MAP)) {
         if (key.includes(k) || k.includes(key)) return v;
     }
-    return 120; // default fallback
+    return 120;
 };
 
-// ── Workout plans ─────────────────────────────────────────────────────────────
-
-const buildExercise = (name: string, reps: string): Exercise => ({
+const buildEx = (name: string, reps: string): Exercise => ({
     name, reps, calories: getCalories(name)
 });
 
+// ── Plans ─────────────────────────────────────────────────────────────────────
+
 const PLANS: Record<string, { title: string; subtitle: string; schedule: DaySchedule[] }> = {
-
     general_fitness: {
-        title: "General Fitness", subtitle: "Stay Fit Plan",
+        title: 'General Fitness', subtitle: 'Stay Fit Plan',
         schedule: [
-            { day:"Day 1", focus:"Full Body", isRest:false, exercises:[
-                buildExercise("Squats","3 sets x 15 reps"),
-                buildExercise("Push-ups","3 sets x 12 reps"),
-                buildExercise("Rows","3 sets x 12 reps"),
-                buildExercise("Plank","3 sets x 30 seconds"),
-            ]},
-            { day:"Day 2", focus:"Cardio", isRest:false, exercises:[
-                buildExercise("Jogging","30 minutes steady pace"),
-            ]},
-            { day:"Day 3", focus:"Mobility", isRest:false, exercises:[
-                buildExercise("Yoga","30-45 minutes"),
-                buildExercise("Stretching","10-15 minutes"),
-            ]},
-            { day:"Day 4", focus:"Strength + Core", isRest:false, exercises:[
-                buildExercise("Lunges","3 sets x 12 reps"),
-                buildExercise("DB Press","3 sets x 10 reps"),
-                buildExercise("Plank","3 sets x 30 seconds"),
-                buildExercise("Mountain Climbers","3 sets x 20 reps"),
-            ]},
-            { day:"Day 5", focus:"Light Activity", isRest:false, exercises:[
-                buildExercise("Walk","30-45 minutes"),
-            ]},
-            { day:"Day 6", focus:"Optional", isRest:false, exercises:[
-                buildExercise("Jogging","20-30 minutes"),
-                buildExercise("Stretching","10-15 minutes"),
-            ]},
-            { day:"Day 7", focus:"Rest", isRest:true, exercises:[] },
+            { day:'Day 1', focus:'Full Body', isRest:false, exercises:[
+                buildEx('Squats','3 sets x 15 reps'), buildEx('Push-ups','3 sets x 12 reps'),
+                buildEx('Rows','3 sets x 12 reps'), buildEx('Plank','3 sets x 30 seconds')]},
+            { day:'Day 2', focus:'Cardio', isRest:false, exercises:[buildEx('Jogging','30 minutes')]},
+            { day:'Day 3', focus:'Mobility', isRest:false, exercises:[buildEx('Yoga','30-45 minutes'), buildEx('Stretching','10-15 minutes')]},
+            { day:'Day 4', focus:'Strength + Core', isRest:false, exercises:[
+                buildEx('Lunges','3 sets x 12 reps'), buildEx('DB Press','3 sets x 10 reps'),
+                buildEx('Plank','3 sets x 30 seconds'), buildEx('Mountain Climbers','3 sets x 20 reps')]},
+            { day:'Day 5', focus:'Light Activity', isRest:false, exercises:[buildEx('Walk','30-45 minutes')]},
+            { day:'Day 6', focus:'Optional', isRest:false, exercises:[buildEx('Jogging','20-30 minutes'), buildEx('Stretching','10-15 minutes')]},
+            { day:'Day 7', focus:'Rest', isRest:true, exercises:[]},
         ],
     },
-
     endurance: {
-        title: "Endurance Training", subtitle: "Cardio & Stamina Plan",
+        title: 'Endurance Training', subtitle: 'Cardio & Stamina Plan',
         schedule: [
-            { day:"Day 1", focus:"Long Run", isRest:false, exercises:[
-                buildExercise("Jogging","60-90 minutes steady pace"),
-            ]},
-            { day:"Day 2", focus:"Intervals", isRest:false, exercises:[
-                buildExercise("Sprint","x 8 rounds — 400m fast"),
-            ]},
-            { day:"Day 3", focus:"Cross Training", isRest:false, exercises:[
-                buildExercise("Cycling","45-60 minutes"),
-            ]},
-            { day:"Day 4", focus:"Tempo Run", isRest:false, exercises:[
-                buildExercise("Jogging","20 minutes moderate-hard pace"),
-            ]},
-            { day:"Day 5", focus:"Strength", isRest:false, exercises:[
-                buildExercise("Squats","3 sets x 8 reps"),
-                buildExercise("Lunges","3 sets x 10 reps"),
-                buildExercise("Plank","3 sets x 30 seconds"),
-            ]},
-            { day:"Day 6", focus:"Recovery", isRest:false, exercises:[
-                buildExercise("Easy Jog","20-30 minutes"),
-                buildExercise("Stretching","10-15 minutes"),
-            ]},
-            { day:"Day 7", focus:"Rest", isRest:true, exercises:[] },
+            { day:'Day 1', focus:'Long Run', isRest:false, exercises:[buildEx('Jogging','60-90 minutes')]},
+            { day:'Day 2', focus:'Intervals', isRest:false, exercises:[buildEx('Sprint','x 8 rounds — 400m')]},
+            { day:'Day 3', focus:'Cross Training', isRest:false, exercises:[buildEx('Cycling','45-60 minutes')]},
+            { day:'Day 4', focus:'Tempo Run', isRest:false, exercises:[buildEx('Jogging','20 min moderate-hard')]},
+            { day:'Day 5', focus:'Strength', isRest:false, exercises:[buildEx('Squats','3 x 8'), buildEx('Lunges','3 x 10'), buildEx('Plank','3 x 30s')]},
+            { day:'Day 6', focus:'Recovery', isRest:false, exercises:[buildEx('Easy Jog','20-30 min'), buildEx('Stretching','10 min')]},
+            { day:'Day 7', focus:'Rest', isRest:true, exercises:[]},
         ],
     },
-
     muscle_gain: {
-        title: "Muscle Gain", subtitle: "Hypertrophy PPL Split",
+        title: 'Muscle Gain', subtitle: 'Hypertrophy PPL Split',
         schedule: [
-            { day:"Day 1", focus:"Push", isRest:false, exercises:[
-                buildExercise("Bench Press","4 sets x 6-10 reps"),
-                buildExercise("Incline DB Press","3 sets x 8-12 reps"),
-                buildExercise("Shoulder Press","3 sets x 8-10 reps"),
-                buildExercise("Tricep Pushdown","3 sets x 12 reps"),
-            ]},
-            { day:"Day 2", focus:"Pull", isRest:false, exercises:[
-                buildExercise("Deadlift","4 sets x 5 reps"),
-                buildExercise("Pull-ups","4 sets x 8 reps"),
-                buildExercise("Barbell Row","3 sets x 8-10 reps"),
-                buildExercise("Bicep Curl","3 sets x 12 reps"),
-            ]},
-            { day:"Day 3", focus:"Legs", isRest:false, exercises:[
-                buildExercise("Squats","4 sets x 6-10 reps"),
-                buildExercise("Leg Press","3 sets x 10 reps"),
-                buildExercise("Hamstring Curl","3 sets x 12 reps"),
-                buildExercise("Calf Raises","4 sets x 15 reps"),
-            ]},
-            { day:"Day 4", focus:"Rest", isRest:true, exercises:[] },
-            { day:"Day 5", focus:"Push (Repeat)", isRest:false, exercises:[
-                buildExercise("Bench Press","4 sets x 6-10 reps"),
-                buildExercise("Incline DB Press","3 sets x 8-12 reps"),
-                buildExercise("Shoulder Press","3 sets x 8-10 reps"),
-                buildExercise("Tricep Pushdown","3 sets x 12 reps"),
-            ]},
-            { day:"Day 6", focus:"Pull (Repeat)", isRest:false, exercises:[
-                buildExercise("Deadlift","4 sets x 5 reps"),
-                buildExercise("Pull-ups","4 sets x 8 reps"),
-                buildExercise("Barbell Row","3 sets x 8-10 reps"),
-                buildExercise("Bicep Curl","3 sets x 12 reps"),
-            ]},
-            { day:"Day 7", focus:"Legs (Repeat)", isRest:false, exercises:[
-                buildExercise("Squats","4 sets x 6-10 reps"),
-                buildExercise("Leg Press","3 sets x 10 reps"),
-                buildExercise("Hamstring Curl","3 sets x 12 reps"),
-                buildExercise("Calf Raises","4 sets x 15 reps"),
-            ]},
+            { day:'Day 1', focus:'Push', isRest:false, exercises:[
+                buildEx('Bench Press','4 x 6-10'), buildEx('Incline DB Press','3 x 8-12'),
+                buildEx('Shoulder Press','3 x 8-10'), buildEx('Tricep Pushdown','3 x 12')]},
+            { day:'Day 2', focus:'Pull', isRest:false, exercises:[
+                buildEx('Deadlift','4 x 5'), buildEx('Pull-ups','4 x 8'),
+                buildEx('Barbell Row','3 x 8-10'), buildEx('Bicep Curl','3 x 12')]},
+            { day:'Day 3', focus:'Legs', isRest:false, exercises:[
+                buildEx('Squats','4 x 6-10'), buildEx('Leg Press','3 x 10'),
+                buildEx('Hamstring Curl','3 x 12'), buildEx('Calf Raises','4 x 15')]},
+            { day:'Day 4', focus:'Rest', isRest:true, exercises:[]},
+            { day:'Day 5', focus:'Push (Repeat)', isRest:false, exercises:[
+                buildEx('Bench Press','4 x 6-10'), buildEx('Incline DB Press','3 x 8-12'),
+                buildEx('Shoulder Press','3 x 8-10'), buildEx('Tricep Pushdown','3 x 12')]},
+            { day:'Day 6', focus:'Pull (Repeat)', isRest:false, exercises:[
+                buildEx('Deadlift','4 x 5'), buildEx('Pull-ups','4 x 8'),
+                buildEx('Barbell Row','3 x 8-10'), buildEx('Bicep Curl','3 x 12')]},
+            { day:'Day 7', focus:'Legs (Repeat)', isRest:false, exercises:[
+                buildEx('Squats','4 x 6-10'), buildEx('Leg Press','3 x 10'),
+                buildEx('Hamstring Curl','3 x 12'), buildEx('Calf Raises','4 x 15')]},
         ],
     },
-
     weight_loss: {
-        title: "Weight Loss", subtitle: "Fat Loss Plan",
+        title: 'Weight Loss', subtitle: 'Fat Loss Plan',
         schedule: [
-            { day:"Day 1", focus:"Full Body Circuit", isRest:false, exercises:[
-                buildExercise("Squats","3 sets x 12 reps"),
-                buildExercise("DB Press","3 sets x 12 reps"),
-                buildExercise("Lat Pulldown","3 sets x 12 reps"),
-                buildExercise("Lunges","3 sets x 15 reps"),
-                buildExercise("Plank","3 sets x 30 seconds"),
-            ]},
-            { day:"Day 2", focus:"HIIT Cardio", isRest:false, exercises:[
-                buildExercise("Sprint","x 10-12 rounds — 30 sec on / 60 sec off"),
-                buildExercise("Mountain Climbers","3 sets x 20 reps"),
-            ]},
-            { day:"Day 3", focus:"Strength", isRest:false, exercises:[
-                buildExercise("Deadlift","4 sets x 8 reps"),
-                buildExercise("Shoulder Press","3 sets x 10 reps"),
-                buildExercise("Seated Row","3 sets x 10 reps"),
-                buildExercise("Step-ups","3 sets x 12 reps"),
-            ]},
-            { day:"Day 4", focus:"LISS Cardio", isRest:false, exercises:[
-                buildExercise("Incline Walk","30-45 minutes"),
-            ]},
-            { day:"Day 5", focus:"Metabolic Circuit", isRest:false, exercises:[
-                buildExercise("KB Swings","3 sets x 15 reps"),
-                buildExercise("Burpees","3 sets x 10 reps"),
-                buildExercise("Mountain Climbers","3 sets x 20 reps"),
-                buildExercise("Battle Ropes","3 sets x 30 seconds"),
-            ]},
-            { day:"Day 6", focus:"Light Activity", isRest:false, exercises:[
-                buildExercise("Walk","8,000-12,000 steps"),
-            ]},
-            { day:"Day 7", focus:"Rest", isRest:true, exercises:[] },
+            { day:'Day 1', focus:'Full Body Circuit', isRest:false, exercises:[
+                buildEx('Squats','3 x 12'), buildEx('DB Press','3 x 12'),
+                buildEx('Lat Pulldown','3 x 12'), buildEx('Lunges','3 x 15'), buildEx('Plank','3 x 30s')]},
+            { day:'Day 2', focus:'HIIT Cardio', isRest:false, exercises:[buildEx('Sprint','x 10-12 rounds'), buildEx('Mountain Climbers','3 x 20')]},
+            { day:'Day 3', focus:'Strength', isRest:false, exercises:[
+                buildEx('Deadlift','4 x 8'), buildEx('Shoulder Press','3 x 10'),
+                buildEx('Seated Row','3 x 10'), buildEx('Step-ups','3 x 12')]},
+            { day:'Day 4', focus:'LISS Cardio', isRest:false, exercises:[buildEx('Incline Walk','30-45 min')]},
+            { day:'Day 5', focus:'Metabolic Circuit', isRest:false, exercises:[
+                buildEx('KB Swings','3 x 15'), buildEx('Burpees','3 x 10'),
+                buildEx('Mountain Climbers','3 x 20'), buildEx('Battle Ropes','3 x 30s')]},
+            { day:'Day 6', focus:'Light Activity', isRest:false, exercises:[buildEx('Walk','8,000-12,000 steps')]},
+            { day:'Day 7', focus:'Rest', isRest:true, exercises:[]},
         ],
     },
-
     athletic_performance: {
-        title: "Athletic Performance", subtitle: "Speed & Power Plan",
+        title: 'Athletic Performance', subtitle: 'Speed & Power Plan',
         schedule: [
-            { day:"Day 1", focus:"Power", isRest:false, exercises:[
-                buildExercise("Power Cleans","4 sets x 5 reps"),
-                buildExercise("Box Jumps","4 sets x 6 reps"),
-                buildExercise("Squats","4 sets x 6 reps"),
-                buildExercise("Sprint Drills","10 minutes"),
-            ]},
-            { day:"Day 2", focus:"Speed", isRest:false, exercises:[
-                buildExercise("Sprint","x 8 rounds — 40m"),
-                buildExercise("Agility Ladder","4 sets"),
-                buildExercise("Cone Drills","4 sets"),
-            ]},
-            { day:"Day 3", focus:"Strength Upper", isRest:false, exercises:[
-                buildExercise("Bench Press","4 sets x 5 reps"),
-                buildExercise("Pull-ups","4 sets x 8 reps"),
-                buildExercise("Shoulder Press","3 sets x 8 reps"),
-                buildExercise("Rows","3 sets x 10 reps"),
-            ]},
-            { day:"Day 4", focus:"Rest", isRest:true, exercises:[] },
-            { day:"Day 5", focus:"Lower Body Power", isRest:false, exercises:[
-                buildExercise("Deadlift","4 sets x 5 reps"),
-                buildExercise("Leg Press","3 sets x 8 reps"),
-                buildExercise("Box Jumps","3 sets x 8 reps"),
-                buildExercise("Calf Raises","4 sets x 15 reps"),
-            ]},
-            { day:"Day 6", focus:"Conditioning", isRest:false, exercises:[
-                buildExercise("Circuit Training","3 rounds"),
-                buildExercise("Cycling","30 minutes"),
-            ]},
-            { day:"Day 7", focus:"Rest", isRest:true, exercises:[] },
+            { day:'Day 1', focus:'Power', isRest:false, exercises:[
+                buildEx('Power Cleans','4 x 5'), buildEx('Box Jumps','4 x 6'),
+                buildEx('Squats','4 x 6'), buildEx('Sprint Drills','10 min')]},
+            { day:'Day 2', focus:'Speed', isRest:false, exercises:[
+                buildEx('Sprint','x 8 — 40m'), buildEx('Agility Ladder','4 sets'), buildEx('Box Jumps','4 sets')]},
+            { day:'Day 3', focus:'Strength Upper', isRest:false, exercises:[
+                buildEx('Bench Press','4 x 5'), buildEx('Pull-ups','4 x 8'),
+                buildEx('Shoulder Press','3 x 8'), buildEx('Rows','3 x 10')]},
+            { day:'Day 4', focus:'Rest', isRest:true, exercises:[]},
+            { day:'Day 5', focus:'Lower Body Power', isRest:false, exercises:[
+                buildEx('Deadlift','4 x 5'), buildEx('Leg Press','3 x 8'),
+                buildEx('Box Jumps','3 x 8'), buildEx('Calf Raises','4 x 15')]},
+            { day:'Day 6', focus:'Conditioning', isRest:false, exercises:[buildEx('Circuit Training','3 rounds'), buildEx('Cycling','30 min')]},
+            { day:'Day 7', focus:'Rest', isRest:true, exercises:[]},
         ],
     },
 };
 
 const GOAL_TO_PLAN: Record<string, string> = {
-    general_fitness:"general_fitness", stay_fit:"general_fitness",
-    endurance:"endurance",
-    muscle_gain:"muscle_gain", build_muscle:"muscle_gain", hypertrophy:"muscle_gain",
-    weight_loss:"weight_loss", lose_weight:"weight_loss", fat_loss:"weight_loss",
-    athletic_performance:"athletic_performance", performance:"athletic_performance",
+    general_fitness:'general_fitness', stay_fit:'general_fitness',
+    endurance:'endurance',
+    muscle_gain:'muscle_gain', build_muscle:'muscle_gain',
+    weight_loss:'weight_loss', lose_weight:'weight_loss',
+    athletic_performance:'athletic_performance',
 };
 
 const GOAL_COLORS: Record<string, string> = {
-    general_fitness:"#1a5c3a", muscle_gain:"#390404",
-    weight_loss:"#4a2c00", endurance:"#0a3a5c", athletic_performance:"#3a0a5c",
+    general_fitness:'#1a5c3a', muscle_gain:'#390404',
+    weight_loss:'#4a2c00', endurance:'#0a3a5c', athletic_performance:'#3a0a5c',
 };
+
+// ── Day status helpers ────────────────────────────────────────────────────────
+
+type DayStatus = 'today' | 'completed' | 'missed' | 'upcoming' | 'rest';
+
+function getDayStatus(
+    dayIndex: number,         // 0-based (Day 1 = 0)
+    currentDayIndex: number,  // today's 0-based index
+    isRest: boolean,
+    loggedDays: Record<string, boolean>,
+    dayKey: string,
+): DayStatus {
+    if (isRest) return 'rest';
+    if (dayIndex === currentDayIndex) return 'today';
+    if (dayIndex < currentDayIndex) {
+        return loggedDays[dayKey] ? 'completed' : 'missed';
+    }
+    return 'upcoming';
+}
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -342,14 +199,64 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
     const plan        = PLANS[planKey];
     const accent      = GOAL_COLORS[planKey] || '#390404';
 
-    // Determine today's workout day (Mon=Day1 ... Sun=Day7)
-    const todayDayNum = new Date().getDay(); // 0=Sun,1=Mon...6=Sat
-    const todayWorkoutDay = 'Day ' + (todayDayNum === 0 ? 7 : todayDayNum);
+    // ── Day calculation from signup date ─────────────────────────────────────
+    const [signupDate, setSignupDate]         = useState<Date | null>(null);
+    const [currentDayIndex, setCurrentDayIndex] = useState(0); // 0-based, 0=Day1
 
-    const [expandedDay, setExpandedDay]           = useState<string|null>(todayWorkoutDay);
-    // ticked: key = "Day1_ExerciseName"
-    const [ticked, setTicked]                     = useState<Record<string,boolean>>({});
-    const [savingDay, setSavingDay]               = useState<string|null>(null);
+    // ── Persistent state ─────────────────────────────────────────────────────
+    const [ticked, setTicked]         = useState<Record<string, boolean>>({});
+    const [loggedDays, setLoggedDays] = useState<Record<string, boolean>>({});
+    const [expandedDay, setExpandedDay] = useState<string | null>(null);
+    const [savingDay, setSavingDay]   = useState<string | null>(null);
+
+    // Storage keys — per plan, reset on new cycle
+    const getCycleKey = (signup: Date) => {
+        const days = Math.floor((Date.now() - signup.getTime()) / (1000 * 60 * 60 * 24));
+        return Math.floor(days / 7);
+    };
+
+    const getStorageKeys = (signup: Date) => {
+        const cycle = getCycleKey(signup);
+        return {
+            ticksKey:  `athletix_ticks_${planKey}_c${cycle}`,
+            loggedKey: `athletix_logged_${planKey}_c${cycle}`,
+        };
+    };
+
+    // Fetch profile for signup date + load persisted state
+    useEffect(() => {
+        const init = async () => {
+            try {
+                // Get signup date from profile
+                const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const prof = await res.json();
+                    const signup = new Date(prof.created_at);
+                    setSignupDate(signup);
+
+                    // Calculate current day index (0-based)
+                    const daysSince = Math.floor((Date.now() - signup.getTime()) / (1000 * 60 * 60 * 24));
+                    const idx = daysSince % 7; // 0=Day1 ... 6=Day7
+                    setCurrentDayIndex(idx);
+
+                    // Auto-expand today's day
+                    setExpandedDay('Day ' + (idx + 1));
+
+                    // Load persisted ticks for this cycle
+                    const { ticksKey, loggedKey } = getStorageKeys(signup);
+                    const [savedTicks, savedLogged] = await Promise.all([
+                        AsyncStorage.getItem(ticksKey),
+                        AsyncStorage.getItem(loggedKey),
+                    ]);
+                    if (savedTicks)  setTicked(JSON.parse(savedTicks));
+                    if (savedLogged) setLoggedDays(JSON.parse(savedLogged));
+                }
+            } catch (_) {}
+        };
+        init();
+    }, [token, planKey]);
 
     const toggleExpand = (day: string, isRest: boolean) => {
         if (isRest) return;
@@ -357,56 +264,59 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
         setExpandedDay(expandedDay === day ? null : day);
     };
 
-    const toggleTick = (day: string, exName: string) => {
+    const toggleTick = async (day: string, exName: string) => {
         const key = day + '_' + exName;
-        setTicked(prev => ({ ...prev, [key]: !prev[key] }));
+        const newTicked = { ...ticked, [key]: !ticked[key] };
+        setTicked(newTicked);
+        if (signupDate) {
+            const { ticksKey } = getStorageKeys(signupDate);
+            await AsyncStorage.setItem(ticksKey, JSON.stringify(newTicked)).catch(() => {});
+        }
     };
 
-    const isTicked = (day: string, exName: string) =>
-        !!ticked[day + '_' + exName];
+    const isTicked = (day: string, exName: string) => !!ticked[day + '_' + exName];
 
-    // Get total calories ticked for a day
-    const getDayCalories = (item: DaySchedule): number =>
-        item.exercises.reduce((sum, ex) =>
-            isTicked(item.day, ex.name) ? sum + ex.calories : sum, 0);
+    const getDayCalories = (item: DaySchedule) =>
+        item.exercises.reduce((sum, ex) => isTicked(item.day, ex.name) ? sum + ex.calories : sum, 0);
 
-    // Get count of ticked exercises for a day
-    const getDayTicked = (item: DaySchedule): number =>
+    const getDayTickedCount = (item: DaySchedule) =>
         item.exercises.filter(ex => isTicked(item.day, ex.name)).length;
 
-    // Log calories to progress tracker
     const logCaloriesToProgress = async (item: DaySchedule) => {
-        const totalCal = getDayCalories(item);
-        const tickedCount = getDayTicked(item);
+        const totalCal   = getDayCalories(item);
+        const tickedCount = getDayTickedCount(item);
         if (tickedCount === 0) {
-            Alert.alert('No exercises done', 'Please tick at least one exercise first.');
+            Alert.alert('No exercises done', 'Tick at least one exercise first.');
             return;
         }
         setSavingDay(item.day);
         try {
             if (token) {
-                await fetch(API_URL + '/api/v1/progress/', {
+                await fetch(`${API_URL}/api/v1/progress/`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + token,
-                    },
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                     body: JSON.stringify({
                         total_calories_burned: totalCal,
                         workouts_completed: 1,
                         total_workout_minutes: tickedCount * 12,
-                        notes: item.day + ' — ' + item.focus + ' (' + tickedCount + ' exercises)',
+                        notes: item.day + ' — ' + item.focus + ' (' + tickedCount + ' exercises, ' + totalCal + ' kcal)',
                     }),
                 });
-                Alert.alert(
-                    'Logged!',
+                // Mark day as logged and persist
+                const newLogged = { ...loggedDays, [item.day]: true };
+                setLoggedDays(newLogged);
+                if (signupDate) {
+                    const { loggedKey } = getStorageKeys(signupDate);
+                    await AsyncStorage.setItem(loggedKey, JSON.stringify(newLogged)).catch(() => {});
+                }
+                Alert.alert('Logged!',
                     tickedCount + ' exercise' + (tickedCount > 1 ? 's' : '') +
-                    ' logged. Estimated ' + totalCal + ' kcal burned added to Progress.',
+                    ' logged. ' + totalCal + ' kcal added to Progress.',
                     [{ text: 'OK' }]
                 );
             }
         } catch (_) {
-            Alert.alert('Error', 'Could not save to progress. Try again.');
+            Alert.alert('Error', 'Could not save. Try again.');
         }
         setSavingDay(null);
     };
@@ -419,7 +329,6 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
 
             <Text style={s.header}>Weekly Training Schedule</Text>
 
-            {/* Plan badge */}
             <View style={[s.planBadge, { backgroundColor: accent }]}>
                 <Text style={s.planTitle}>{plan.title}</Text>
                 <Text style={s.planSub}>{plan.subtitle}</Text>
@@ -427,87 +336,114 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
 
             <View style={s.tipBox}>
                 <Text style={s.tipTxt}>
-                    Tap a day to expand · Tick exercises you complete · Log calories to Progress
+                    Today is highlighted in gold · Tick exercises · Log calories to Progress
                 </Text>
             </View>
 
-            {plan.schedule.map((item) => {
-                const dayTicked  = getDayTicked(item);
-                const dayCal     = getDayCalories(item);
+            {plan.schedule.map((item, idx) => {
+                const status     = getDayStatus(idx, currentDayIndex, item.isRest, loggedDays, item.day);
                 const isExpanded = expandedDay === item.day;
+                const dayTicked  = getDayTickedCount(item);
+                const dayCal     = getDayCalories(item);
                 const allDone    = !item.isRest && dayTicked === item.exercises.length;
 
                 return (
                     <View key={item.day} style={s.dayWrapper}>
-
-                        {/* Day header row */}
                         <TouchableOpacity
                             style={[
                                 s.dayRow,
-                                item.isRest && s.dayRowRest,
-                                isExpanded && s.dayRowExpanded,
-                                item.day === todayWorkoutDay && !item.isRest && s.dayRowToday,
+                                item.isRest          && s.dayRowRest,
+                                isExpanded           && s.dayRowExpanded,
+                                status === 'today'   && s.dayRowToday,
+                                status === 'completed' && s.dayRowCompleted,
+                                status === 'missed'  && s.dayRowMissed,
                             ]}
                             onPress={() => toggleExpand(item.day, item.isRest)}
                             activeOpacity={0.8}>
+
                             <View style={s.dayLeft}>
-                                <View style={{flexDirection:'row', alignItems:'center', gap:8, marginBottom:6}}>
-                                    <Text style={[s.dayTxt, item.day===todayWorkoutDay && !item.isRest && {color:'#FFD700'}]}>
+                                {/* Day label + status badge */}
+                                <View style={s.dayTitleRow}>
+                                    <Text style={[
+                                        s.dayTxt,
+                                        status === 'today'     && { color:'#FFD700', fontSize:19 },
+                                        status === 'completed' && { color:'#00FF88' },
+                                        status === 'missed'    && { color:'#FF6666' },
+                                    ]}>
                                         {item.day}
                                     </Text>
-                                    {item.day === todayWorkoutDay && !item.isRest && (
-                                        <View style={s.todayBadge}>
-                                            <Text style={s.todayBadgeTxt}>TODAY</Text>
-                                        </View>
-                                    )}
+                                    {status === 'today'     && <View style={s.badgeToday}><Text style={s.badgeTodayTxt}>TODAY</Text></View>}
+                                    {status === 'completed' && <View style={s.badgeDone}><Text style={s.badgeDoneTxt}>✓ DONE</Text></View>}
+                                    {status === 'missed'    && <View style={s.badgeMissed}><Text style={s.badgeMissedTxt}>MISSED</Text></View>}
                                 </View>
-                                <View style={[s.focusBadge, item.isRest && { backgroundColor:'#555' }]}>
+                                {/* Focus badge */}
+                                <View style={[s.focusBadge,
+                                    item.isRest            && { backgroundColor:'#555' },
+                                    status === 'today'     && { backgroundColor:'#8B6800' },
+                                    status === 'completed' && { backgroundColor:'#1a5c2a' },
+                                    status === 'missed'    && { backgroundColor:'#5c1a1a' },
+                                ]}>
                                     <Text style={s.focusTxt}>{item.focus}</Text>
                                 </View>
                             </View>
 
-                            {/* Right side: progress or rest */}
+                            {/* Right side */}
                             {item.isRest ? (
                                 <Text style={s.restEmoji}>😴</Text>
                             ) : (
                                 <View style={s.dayRight}>
                                     {dayTicked > 0 && (
                                         <View style={s.calBadge}>
-                                            <Text style={s.calBadgeTxt}>🔥 {dayCal} kcal</Text>
+                                            <Text style={s.calBadgeTxt}>🔥 {dayCal}</Text>
                                         </View>
                                     )}
-                                    <Text style={s.progressTxt}>
-                                        {dayTicked}/{item.exercises.length}
-                                    </Text>
-                                    <Text style={s.chevron}>{isExpanded?'▲':'▼'}</Text>
+                                    <Text style={s.progressTxt}>{dayTicked}/{item.exercises.length}</Text>
+                                    <Text style={s.chevron}>{isExpanded ? '▲' : '▼'}</Text>
                                 </View>
                             )}
                         </TouchableOpacity>
 
-                        {/* Expanded exercises list */}
-                        {isExpanded && !item.isRest && (
-                            <View style={s.exContainer}>
-                                <Text style={s.exHeader}>Exercises — {item.focus}</Text>
+                        {/* Missed day message */}
+                        {status === 'missed' && !isExpanded && (
+                            <View style={s.missedBanner}>
+                                <Text style={s.missedBannerTxt}>
+                                    ⚠ You missed this day — you can still do it!
+                                </Text>
+                            </View>
+                        )}
 
-                                {item.exercises.map((ex, idx) => {
+                        {/* Expanded exercises */}
+                        {isExpanded && !item.isRest && (
+                            <View style={[s.exContainer,
+                                status === 'today'     && { borderColor:'#8B6800' },
+                                status === 'completed' && { borderColor:'#1a5c2a' },
+                                status === 'missed'    && { borderColor:'#5c1a1a' },
+                            ]}>
+                                <Text style={s.exHeader}>
+                                    {status === 'today'     ? "Today's exercises — let's go!" :
+                                     status === 'completed' ? "Completed exercises" :
+                                     status === 'missed'    ? "Missed exercises — still do them!" :
+                                     "Upcoming exercises"}
+                                </Text>
+
+                                {item.exercises.map((ex, exIdx) => {
                                     const done = isTicked(item.day, ex.name);
                                     return (
-                                        <View key={idx} style={[s.exRow, done && s.exRowDone]}>
-                                            {/* Number */}
+                                        <View key={exIdx} style={[s.exRow, done && s.exRowDone]}>
                                             <View style={[s.numBadge, done && s.numBadgeDone]}>
-                                                <Text style={s.numTxt}>{done ? '✓' : String(idx + 1)}</Text>
+                                                <Text style={s.numTxt}>{done ? '✓' : String(exIdx + 1)}</Text>
                                             </View>
-
-                                            {/* Exercise info */}
                                             <View style={s.exInfo}>
-                                                <Text style={[s.exName, done && s.exNameDone]}>
+                                                <Text style={[
+                                                    s.exName,
+                                                    done && s.exNameDone,
+                                                    status === 'today' && !done && { fontWeight:'700', color:'#FFD700' },
+                                                ]}>
                                                     {ex.name}
                                                 </Text>
                                                 <Text style={s.exReps}>{ex.reps}</Text>
                                                 <Text style={s.exCal}>~{ex.calories} kcal</Text>
                                             </View>
-
-                                            {/* Tick button */}
                                             <TouchableOpacity
                                                 style={[s.tickBtn, done && s.tickBtnDone]}
                                                 onPress={() => toggleTick(item.day, ex.name)}>
@@ -519,20 +455,26 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                                     );
                                 })}
 
-                                {/* Log to progress button */}
-                                {dayTicked > 0 && (
+                                {/* Log button — only show if not already logged */}
+                                {dayTicked > 0 && !loggedDays[item.day] && (
                                     <TouchableOpacity
-                                        style={[s.logBtn, savingDay===item.day && s.logBtnDis]}
+                                        style={[s.logBtn, savingDay === item.day && s.logBtnDis]}
                                         onPress={() => logCaloriesToProgress(item)}
-                                        disabled={savingDay===item.day}>
+                                        disabled={savingDay === item.day}>
                                         <Text style={s.logBtnTxt}>
-                                            {savingDay===item.day
-                                                ? 'Saving...'
-                                                : '📊  Log ' + dayCal + ' kcal to Progress'}
+                                            {savingDay === item.day ? 'Saving...' : '📊  Log ' + dayCal + ' kcal to Progress'}
                                         </Text>
                                     </TouchableOpacity>
                                 )}
 
+                                {/* Already logged */}
+                                {loggedDays[item.day] && (
+                                    <View style={s.alreadyLogged}>
+                                        <Text style={s.alreadyLoggedTxt}>✅ Logged to Progress</Text>
+                                    </View>
+                                )}
+
+                                {/* All done banner */}
                                 {allDone && (
                                     <View style={s.allDoneBadge}>
                                         <Text style={s.allDoneTxt}>🎉 All exercises completed!</Text>
@@ -548,60 +490,63 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
 }
 
 const s = StyleSheet.create({
-    container:      { flex:1, backgroundColor:'#000' },
-    content:        { padding:20, paddingBottom:60 },
-    backBtn:        { marginTop:40, marginBottom:20, padding:10, backgroundColor:'#501313', borderRadius:20, alignSelf:'flex-start' },
-    backTxt:        { color:'#FFF', fontWeight:'700', fontSize:16 },
-    header:         { fontWeight:'700', fontSize:26, color:'#FFF', marginBottom:14, textAlign:'center' },
-    planBadge:      { borderRadius:14, padding:16, marginBottom:12, alignItems:'center' },
-    planTitle:      { color:'#FFF', fontSize:18, fontWeight:'800' },
-    planSub:        { color:'rgba(255,255,255,0.75)', fontSize:13, marginTop:3 },
-    tipBox:         { backgroundColor:'#1a1a1a', borderRadius:10, padding:10, marginBottom:18, borderLeftWidth:3, borderLeftColor:'#8B2F3F' },
-    tipTxt:         { color:'#AAA', fontSize:12 },
-
-    // Day row
-    dayWrapper:     { marginBottom:12 },
-    dayRow:         { backgroundColor:'#1a0505', borderRadius:14, padding:16, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderWidth:1, borderColor:'#390404' },
-    dayRowRest:     { backgroundColor:'#1a1a1a', borderColor:'#333' },
-    dayRowExpanded: { borderBottomLeftRadius:0, borderBottomRightRadius:0, borderColor:'#8B2F3F' },
-    dayRowToday:    { borderColor:'#FFD700', borderWidth:2, backgroundColor:'#1f1800' },
-    todayBadge:     { backgroundColor:'#FFD700', borderRadius:6, paddingHorizontal:6, paddingVertical:2 },
-    todayBadgeTxt:  { color:'#000', fontSize:10, fontWeight:'800', letterSpacing:0.5 },
-    dayLeft:        { flex:1 },
-    dayTxt:         { fontWeight:'700', fontSize:17, color:'#FFF', marginBottom:6 },
-    focusBadge:     { backgroundColor:'#8B2F3F', alignSelf:'flex-start', borderRadius:8, paddingHorizontal:10, paddingVertical:3 },
-    focusTxt:       { color:'#FFF', fontSize:12, fontWeight:'600' },
-    dayRight:       { flexDirection:'row', alignItems:'center', gap:8 },
-    calBadge:       { backgroundColor:'rgba(255,100,0,0.2)', borderRadius:10, paddingHorizontal:8, paddingVertical:3, borderWidth:1, borderColor:'rgba(255,100,0,0.4)' },
-    calBadgeTxt:    { color:'#FF8844', fontSize:11, fontWeight:'600' },
-    progressTxt:    { color:'#AAA', fontSize:13, fontWeight:'600' },
-    chevron:        { color:'#AAA', fontSize:14, marginLeft:4 },
-    restEmoji:      { fontSize:20 },
-
-    // Exercises container
-    exContainer:    { backgroundColor:'#0d0202', borderBottomLeftRadius:14, borderBottomRightRadius:14, padding:14, borderWidth:1, borderTopWidth:0, borderColor:'#8B2F3F' },
-    exHeader:       { color:'#FF9944', fontSize:13, fontWeight:'700', marginBottom:12 },
-    exRow:          { flexDirection:'row', alignItems:'center', marginBottom:10, padding:10, borderRadius:10, backgroundColor:'rgba(255,255,255,0.04)', gap:10 },
-    exRowDone:      { backgroundColor:'rgba(0,180,0,0.08)', borderWidth:1, borderColor:'rgba(0,200,0,0.2)' },
-    numBadge:       { width:28, height:28, borderRadius:14, backgroundColor:'#8B2F3F', justifyContent:'center', alignItems:'center' },
-    numBadgeDone:   { backgroundColor:'#1a6b1a' },
-    numTxt:         { color:'#FFF', fontSize:12, fontWeight:'700' },
-    exInfo:         { flex:1 },
-    exName:         { fontWeight:'600', fontSize:14, color:'#FFF' },
-    exNameDone:     { color:'#00CC66', textDecorationLine:'line-through' },
-    exReps:         { fontSize:12, color:'#AAA', marginTop:2 },
-    exCal:          { fontSize:11, color:'#FF8844', marginTop:1 },
-
-    // Tick button
-    tickBtn:        { backgroundColor:'rgba(139,47,63,0.3)', borderRadius:12, paddingHorizontal:10, paddingVertical:6, borderWidth:1, borderColor:'#8B2F3F' },
-    tickBtnDone:    { backgroundColor:'rgba(0,160,0,0.25)', borderColor:'#00CC66' },
-    tickTxt:        { color:'#CCC', fontSize:11, fontWeight:'600' },
-    tickTxtDone:    { color:'#00CC66' },
-
-    // Log button
-    logBtn:         { backgroundColor:'#8B2F3F', borderRadius:12, padding:12, alignItems:'center', marginTop:8 },
-    logBtnDis:      { backgroundColor:'#444' },
-    logBtnTxt:      { color:'#FFF', fontSize:14, fontWeight:'700' },
-    allDoneBadge:   { backgroundColor:'rgba(0,120,0,0.2)', borderRadius:10, padding:10, alignItems:'center', marginTop:8, borderWidth:1, borderColor:'rgba(0,200,0,0.3)' },
-    allDoneTxt:     { color:'#00FF88', fontSize:13, fontWeight:'600' },
+    container:        { flex:1, backgroundColor:'#000' },
+    content:          { padding:20, paddingBottom:60 },
+    backBtn:          { marginTop:40, marginBottom:20, padding:10, backgroundColor:'#501313', borderRadius:20, alignSelf:'flex-start' },
+    backTxt:          { color:'#FFF', fontWeight:'700', fontSize:16 },
+    header:           { fontWeight:'700', fontSize:26, color:'#FFF', marginBottom:14, textAlign:'center' },
+    planBadge:        { borderRadius:14, padding:16, marginBottom:12, alignItems:'center' },
+    planTitle:        { color:'#FFF', fontSize:18, fontWeight:'800' },
+    planSub:          { color:'rgba(255,255,255,0.75)', fontSize:13, marginTop:3 },
+    tipBox:           { backgroundColor:'#111', borderRadius:10, padding:10, marginBottom:18, borderLeftWidth:3, borderLeftColor:'#8B2F3F' },
+    tipTxt:           { color:'#AAA', fontSize:12 },
+    dayWrapper:       { marginBottom:10 },
+    dayRow:           { backgroundColor:'#1a0505', borderRadius:14, padding:16, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderWidth:1, borderColor:'#390404' },
+    dayRowRest:       { backgroundColor:'#1a1a1a', borderColor:'#333' },
+    dayRowExpanded:   { borderBottomLeftRadius:0, borderBottomRightRadius:0 },
+    dayRowToday:      { borderColor:'#FFD700', borderWidth:2, backgroundColor:'#1f1800' },
+    dayRowCompleted:  { borderColor:'#1a5c2a', backgroundColor:'#061209' },
+    dayRowMissed:     { borderColor:'#5c1a1a', backgroundColor:'#0d0303' },
+    dayLeft:          { flex:1 },
+    dayTitleRow:      { flexDirection:'row', alignItems:'center', gap:8, marginBottom:6 },
+    dayTxt:           { fontWeight:'700', fontSize:17, color:'#FFF' },
+    badgeToday:       { backgroundColor:'#FFD700', borderRadius:6, paddingHorizontal:7, paddingVertical:2 },
+    badgeTodayTxt:    { color:'#000', fontSize:10, fontWeight:'800' },
+    badgeDone:        { backgroundColor:'#1a5c2a', borderRadius:6, paddingHorizontal:7, paddingVertical:2 },
+    badgeDoneTxt:     { color:'#00FF88', fontSize:10, fontWeight:'700' },
+    badgeMissed:      { backgroundColor:'#5c1a1a', borderRadius:6, paddingHorizontal:7, paddingVertical:2 },
+    badgeMissedTxt:   { color:'#FF6666', fontSize:10, fontWeight:'700' },
+    focusBadge:       { backgroundColor:'#8B2F3F', alignSelf:'flex-start', borderRadius:8, paddingHorizontal:10, paddingVertical:3 },
+    focusTxt:         { color:'#FFF', fontSize:12, fontWeight:'600' },
+    dayRight:         { flexDirection:'row', alignItems:'center', gap:6 },
+    calBadge:         { backgroundColor:'rgba(255,100,0,0.2)', borderRadius:10, paddingHorizontal:7, paddingVertical:3, borderWidth:1, borderColor:'rgba(255,100,0,0.4)' },
+    calBadgeTxt:      { color:'#FF8844', fontSize:11, fontWeight:'600' },
+    progressTxt:      { color:'#AAA', fontSize:13, fontWeight:'600' },
+    chevron:          { color:'#AAA', fontSize:14 },
+    restEmoji:        { fontSize:20 },
+    missedBanner:     { backgroundColor:'#1a0505', borderRadius:8, padding:10, borderWidth:1, borderColor:'#5c1a1a', marginTop:2 },
+    missedBannerTxt:  { color:'#FF8888', fontSize:12 },
+    exContainer:      { backgroundColor:'#0d0202', borderBottomLeftRadius:14, borderBottomRightRadius:14, padding:14, borderWidth:1, borderTopWidth:0, borderColor:'#8B2F3F' },
+    exHeader:         { color:'#FF9944', fontSize:13, fontWeight:'700', marginBottom:12 },
+    exRow:            { flexDirection:'row', alignItems:'center', marginBottom:10, padding:10, borderRadius:10, backgroundColor:'rgba(255,255,255,0.04)', gap:10 },
+    exRowDone:        { backgroundColor:'rgba(0,180,0,0.08)', borderWidth:1, borderColor:'rgba(0,200,0,0.2)' },
+    numBadge:         { width:28, height:28, borderRadius:14, backgroundColor:'#8B2F3F', justifyContent:'center', alignItems:'center' },
+    numBadgeDone:     { backgroundColor:'#1a6b1a' },
+    numTxt:           { color:'#FFF', fontSize:12, fontWeight:'700' },
+    exInfo:           { flex:1 },
+    exName:           { fontWeight:'600', fontSize:14, color:'#FFF' },
+    exNameDone:       { color:'#00CC66', textDecorationLine:'line-through' },
+    exReps:           { fontSize:12, color:'#AAA', marginTop:2 },
+    exCal:            { fontSize:11, color:'#FF8844', marginTop:1 },
+    tickBtn:          { backgroundColor:'rgba(139,47,63,0.3)', borderRadius:12, paddingHorizontal:10, paddingVertical:6, borderWidth:1, borderColor:'#8B2F3F' },
+    tickBtnDone:      { backgroundColor:'rgba(0,160,0,0.25)', borderColor:'#00CC66' },
+    tickTxt:          { color:'#CCC', fontSize:11, fontWeight:'600' },
+    tickTxtDone:      { color:'#00CC66' },
+    logBtn:           { backgroundColor:'#8B2F3F', borderRadius:12, padding:12, alignItems:'center', marginTop:8 },
+    logBtnDis:        { backgroundColor:'#444' },
+    logBtnTxt:        { color:'#FFF', fontSize:14, fontWeight:'700' },
+    alreadyLogged:    { backgroundColor:'rgba(0,120,0,0.2)', borderRadius:10, padding:10, alignItems:'center', marginTop:8, borderWidth:1, borderColor:'rgba(0,200,0,0.3)' },
+    alreadyLoggedTxt: { color:'#00FF88', fontSize:13, fontWeight:'600' },
+    allDoneBadge:     { backgroundColor:'rgba(0,120,0,0.2)', borderRadius:10, padding:10, alignItems:'center', marginTop:6, borderWidth:1, borderColor:'rgba(0,200,0,0.3)' },
+    allDoneTxt:       { color:'#00FF88', fontSize:13, fontWeight:'600' },
 });

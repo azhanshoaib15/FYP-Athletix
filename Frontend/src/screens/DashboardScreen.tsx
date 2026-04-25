@@ -1,6 +1,7 @@
 import { Image } from "expo-image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSelector } from "react-redux";
 import type { RootState } from "../store/store";
 
@@ -50,6 +51,13 @@ export default function DashboardScreen({ onNavigate }: { onNavigate: (screen: a
     const isRestDay   = todayFocus === "Rest";
 
     useEffect(() => { fetchStats(); }, []);
+
+    // Refresh stats every time user returns to dashboard
+    useFocusEffect(
+        useCallback(() => {
+            fetchStats();
+        }, [])
+    );
 
     const fetchStats = async () => {
         if (!accessToken) { setLoading(false); return; }

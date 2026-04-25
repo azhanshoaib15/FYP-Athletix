@@ -131,6 +131,12 @@ async def create_progress_record(
             # Gap of 2+ days — reset
             new_streak = 1
 
+    # ── Validate inputs ──────────────────────────────────────────────────────
+    raw_weight = getattr(data, 'weight_kg', None)
+    raw_bf     = getattr(data, 'body_fat_percentage', None)
+    weight_val = float(raw_weight) if raw_weight and 10 < float(raw_weight) < 500 else None
+    bf_val     = float(raw_bf)     if raw_bf     and 1  < float(raw_bf)     < 70  else None
+
     # ── Build record ─────────────────────────────────────────────────────────
     # Calculate XP points
     workouts_done = getattr(data, 'workouts_completed', 0) or 0
@@ -143,8 +149,8 @@ async def create_progress_record(
 
     record = ProgressRecord(
         user_id=user_id,
-        weight_kg=getattr(data, 'weight_kg', None),
-        body_fat_percentage=getattr(data, 'body_fat_percentage', None),
+        weight_kg=weight_val,
+        body_fat_percentage=bf_val,
         workouts_completed=workouts_done,
         total_workout_minutes=getattr(data, 'total_workout_minutes', 0) or 0,
         total_calories_burned=cal_burned,

@@ -32,6 +32,14 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # { email: { "code": "123456", "expires": datetime } }
 _otp_store: dict = {}
 
+# ── Rate limiting stores ──────────────────────────────────────────────────────
+# OTP send rate limit: max 3 per 10 minutes per email
+_otp_send_log: dict = {}   # { email: [datetime, ...] }
+# Verify attempt limit: max 5 attempts per OTP
+_otp_attempts: dict = {}   # { email: int }
+# Login rate limit: max 10 attempts per 5 min per email
+_login_attempts: dict = {}  # { email: [datetime, ...] }
+
 # ── Pydantic models for OTP ───────────────────────────────────────────────────
 
 class OTPRequest(BaseModel):
@@ -47,26 +55,14 @@ def _generate_otp() -> str:
     return "".join(random.choices(string.digits, k=6))
 
 def _send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP via SMTP. Returns True on success, False on failure."""
+    """Send OTP via Resend API (HTTPS - works on Railway free tier)."""
+    import urllib.request
+    import json as _json
     try:
-        # Read directly from os.environ to bypass lru_cache on settings
-        smtp_user = os.environ.get("SMTP_USER", "").strip()
-        smtp_pass = os.environ.get("SMTP_PASS", "").strip()
-        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
-        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-        smtp_from = os.environ.get("SMTP_FROM", smtp_user).strip()
-
-        logger.info(f"SMTP_USER from env: '{smtp_user[:10]}...' len={len(smtp_user)}")
-        logger.info(f"SMTP_PASS from env: len={len(smtp_pass)}")
-
-        if not smtp_user or not smtp_pass:
-            logger.warning("SMTP not configured — OTP will be returned in dev mode")
+        api_key = os.environ.get("RESEND_API_KEY", "").strip()
+        if not api_key:
+            logger.warning("RESEND_API_KEY not set — falling back to dev mode")
             return False
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Athletix — Your Verification Code"
-        msg["From"]    = smtp_from
-        msg["To"]      = to_email
 
         html_body = f"""
         <html>
@@ -95,25 +91,29 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
         </html>
         """
 
-        msg.attach(MIMEText(html_body, "html"))
+        payload = _json.dumps({
+            "from": "Athletix <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": "Athletix - Your Verification Code",
+            "html": html_body,
+        }).encode()
 
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, to_email, msg.as_string())
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = _json.loads(resp.read())
+            logger.info(f"Resend email sent to {to_email}: {result}")
+            return True
 
-        logger.info(f"OTP email sent to {to_email}")
-        return True
-
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error(f"SMTP AUTH FAILED for {to_email}: {e} - Check Gmail App Password")
-        return False
-    except smtplib.SMTPException as e:
-        logger.error(f"SMTP ERROR for {to_email}: {e}")
-        return False
     except Exception as e:
-        logger.error(f"SMTP general error for {to_email}: {type(e).__name__}: {e}")
+        logger.error(f"Resend error for {to_email}: {type(e).__name__}: {e}")
         return False
 
 # ── Existing routes ───────────────────────────────────────────────────────────
@@ -121,9 +121,25 @@ def _send_otp_email(to_email: str, otp: str) -> bool:
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     """Register a new Athletix user."""
-    if await get_user_by_email(db, data.email):
+    import re as _re
+
+    # Validate email format
+    email_clean = data.email.strip().lower()
+    if not _re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email_clean):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
+    # Validate username: 3-30 chars, alphanumeric + underscores only
+    username_clean = data.username.strip()
+    if not _re.match(r"^[a-zA-Z0-9_]{3,30}$", username_clean):
+        raise HTTPException(status_code=400, detail="Username must be 3-30 characters, letters/numbers/underscores only")
+
+    # Validate password strength: min 8 chars
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    if await get_user_by_email(db, email_clean):
         raise HTTPException(status_code=400, detail="Email already registered")
-    if await get_user_by_username(db, data.username):
+    if await get_user_by_username(db, username_clean):
         raise HTTPException(status_code=400, detail="Username already taken")
     user = await create_user(db, data)
     return user
@@ -131,6 +147,16 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     """Login and receive JWT access + refresh tokens."""
+    # Rate limit: max 10 login attempts per 5 minutes
+    email_key = data.email.lower().strip()
+    now = datetime.utcnow()
+    attempts = _login_attempts.get(email_key, [])
+    attempts = [t for t in attempts if (now - t).seconds < 300]
+    if len(attempts) >= 10:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait 5 minutes.")
+    attempts.append(now)
+    _login_attempts[email_key] = attempts
+
     user = await get_user_by_email(db, data.email)
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -190,10 +216,22 @@ async def send_otp(request: OTPRequest, db: AsyncSession = Depends(get_db)):
     """
     email = request.email.lower().strip()
 
+    # Rate limit: max 3 OTP requests per 10 minutes
+    now = datetime.utcnow()
+    send_log = _otp_send_log.get(email, [])
+    send_log = [t for t in send_log if (now - t).seconds < 600]
+    if len(send_log) >= 3:
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait 10 minutes.")
+    send_log.append(now)
+    _otp_send_log[email] = send_log
+
     # Check user exists
     user = await get_user_by_email(db, email)
     if not user:
         raise HTTPException(status_code=404, detail="No account found with this email")
+
+    # Reset attempt counter on new OTP
+    _otp_attempts[email] = 0
 
     # Generate OTP and store with 10-minute expiry
     code = _generate_otp()
@@ -243,11 +281,23 @@ async def verify_otp(request: OTPVerify, db: AsyncSession = Depends(get_db)):
             detail="Verification code has expired. Please request a new one."
         )
 
+    # Brute force protection: max 5 attempts per OTP
+    attempts = _otp_attempts.get(email, 0)
+    if attempts >= 5:
+        del _otp_store[email]
+        _otp_attempts.pop(email, None)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Please request a new code."
+        )
+
     # Check code match
     if stored["code"] != entered:
+        _otp_attempts[email] = attempts + 1
+        remaining = 5 - _otp_attempts[email]
         raise HTTPException(
             status_code=400,
-            detail="Invalid code. Please check and try again."
+            detail=f"Invalid code. {remaining} attempts remaining."
         )
 
     # Mark user as verified in DB

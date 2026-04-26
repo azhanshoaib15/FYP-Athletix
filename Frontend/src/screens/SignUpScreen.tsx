@@ -1,233 +1,198 @@
 import { Image } from "expo-image";
-import { useEffect, useState, useCallback } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
-import { useSelector } from "react-redux";
-import type { RootState } from "../store/store";
+import { useState, useRef } from "react";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useDispatch } from "react-redux";
+import { setUser } from "../store/slices/userSlice";
 
 const API_URL = "https://fyp-athletix-production.up.railway.app";
 
-// Map fitness goal to plan name
-const GOAL_PLAN_NAME: Record<string, string> = {
-    muscle_gain:          "Muscle Gain — PPL Split",
-    weight_loss:          "Weight Loss — Fat Loss Plan",
-    general_fitness:      "General Fitness — Stay Fit",
-    endurance:            "Endurance Training",
-    athletic_performance: "Athletic Performance",
-    stay_fit:             "General Fitness — Stay Fit",
-};
+export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
+    const dispatch = useDispatch();
+    const [email,    setEmail]    = useState("");
+    const [username, setUsername] = useState("");
+    const [password, setPassword] = useState("");
+    const [loading,  setLoading]  = useState(false);
+    const [showPass, setShowPass] = useState(false);
 
-// Day focus per goal (Day 1-7)
-const GOAL_DAY_FOCUS: Record<string, string[]> = {
-    muscle_gain:     ["Push","Pull","Legs","Rest","Push","Pull","Legs"],
-    weight_loss:     ["Full Body Circuit","HIIT Cardio","Strength","LISS Cardio","Metabolic Circuit","Light Activity","Rest"],
-    general_fitness: ["Full Body","Cardio","Mobility","Strength + Core","Light Activity","Optional","Rest"],
-    endurance:       ["Long Run","Intervals","Cross Training","Tempo Run","Strength","Recovery","Rest"],
-    athletic_performance: ["Power","Speed","Strength Upper","Rest","Lower Body Power","Conditioning","Rest"],
-    stay_fit:        ["Full Body","Cardio","Mobility","Strength + Core","Light Activity","Optional","Rest"],
-};
-
-export default function DashboardScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
-    const { username, accessToken, fitness_goal } = useSelector((state: RootState) => state.user);
-
-    const [streak, setStreak]           = useState(0);
-    const [totalWorkouts, setTotalWorkouts] = useState(0);
-    const [xpPoints, setXpPoints]       = useState(0);
-    const [loading, setLoading]         = useState(true);
-
-    const today     = new Date();
-    const hour      = today.getHours();
-    const greeting  = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-    const dateStr   = today.toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" });
-
-    // Today is weekday 0=Sun..6=Sat → workout day 1=Mon..7=Sun
-    const weekday     = today.getDay(); // 0=Sun
-    const dayNum      = weekday === 0 ? 7 : weekday; // 1=Mon..7=Sun
-    const dayLabel    = "Day " + dayNum;
-    const goal        = fitness_goal || "general_fitness";
-    const focusArr    = GOAL_DAY_FOCUS[goal] || GOAL_DAY_FOCUS.general_fitness;
-    const todayFocus  = focusArr[dayNum - 1] || "Rest";
-    const planName    = GOAL_PLAN_NAME[goal] || "Workout Plan";
-    const isRestDay   = todayFocus === "Rest";
-
-    useEffect(() => { fetchStats(); }, []);
-
-    // Refresh stats every time user returns to dashboard
-    useFocusEffect(
-        useCallback(() => {
-            fetchStats();
-        }, [])
-    );
-
-    const fetchStats = async () => {
-        if (!accessToken) { setLoading(false); return; }
+    const parseError = (err: any): string => {
         try {
-            const h = { Authorization: "Bearer " + accessToken };
-            const [latestRes, sessionsRes, progressRes] = await Promise.all([
-                fetch(API_URL + "/api/v1/progress/latest",  { headers: h }),
-                fetch(API_URL + "/api/v1/workouts/sessions", { headers: h }),
-                fetch(API_URL + "/api/v1/progress/?limit=30", { headers: h }),
-            ]);
-            if (latestRes.ok) {
-                const lat = await latestRes.json();
-                setStreak(lat.streak_days || 0);
-                setXpPoints(lat.xp_points || 0);
+            if (err?.detail) {
+                if (typeof err.detail === "string") return err.detail;
+                if (Array.isArray(err.detail)) return err.detail.map((e: any) => e.msg || JSON.stringify(e)).join(", ");
+                return JSON.stringify(err.detail);
             }
-            if (sessionsRes.ok) {
-                const ses = await sessionsRes.json();
-                const sessCount = Array.isArray(ses) ? ses.length : 0;
-                let progressWkts = 0;
-                if (progressRes.ok) {
-                    const prog = await progressRes.json();
-                    progressWkts = Array.isArray(prog)
-                        ? prog.filter((p: any) => (p.workouts_completed || 0) > 0).length
-                        : 0;
+            if (typeof err === "string") return err;
+            return "Something went wrong. Please try again.";
+        } catch (_) { return "Something went wrong. Please try again."; }
+    };
+
+    const handleSignUp = async () => {
+        if (!email || !username || !password) {
+            Alert.alert("Error", "Please fill in all fields");
+            return;
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Alert.alert("Error", "Please enter a valid email address");
+            return;
+        }
+        if (username.length < 3) {
+            Alert.alert("Error", "Username must be at least 3 characters");
+            return;
+        }
+        if (password.length < 8) {
+            Alert.alert("Error", "Password must be at least 8 characters");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            // Step 1: Register
+            const regRes = await fetch(`${API_URL}/api/v1/auth/register`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: email.trim().toLowerCase(), username: username.trim(), password }),
+            });
+
+            if (!regRes.ok) {
+                let errMsg = "Sign up failed. Please try again.";
+                try {
+                    const errData = await regRes.json();
+                    if (typeof errData.detail === "string") {
+                        errMsg = errData.detail;
+                    } else if (Array.isArray(errData.detail)) {
+                        errMsg = errData.detail.map((e: any) => e.msg || "Invalid input").join(", ");
+                    }
+                } catch (_) {}
+                const lower = errMsg.toLowerCase();
+                if (lower.includes("already") || lower.includes("exist") || regRes.status === 409) {
+                    Alert.alert("Account Exists", "An account with this email or username already exists. Please sign in instead.");
+                } else {
+                    Alert.alert("Sign Up Failed", errMsg);
                 }
-                setTotalWorkouts(sessCount + progressWkts);
+                return;
             }
-        } catch (_) {}
-        setLoading(false);
+
+            // Step 2: Auto-login after registration
+            const loginRes = await fetch(`${API_URL}/api/v1/auth/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+            });
+
+            if (!loginRes.ok) {
+                Alert.alert("Error", "Account created but login failed. Please sign in manually.");
+                onNavigate("signin");
+                return;
+            }
+
+            const loginData = await loginRes.json();
+
+            // Step 3: Get user info
+            // Step 3: Get user info safely
+            let userId   = 0;
+            let userEmail = email.trim().toLowerCase();
+            let userName  = username.trim();
+            try {
+                const meRes  = await fetch(`${API_URL}/api/v1/auth/me`, {
+                    headers: { Authorization: `Bearer ${loginData.access_token}` },
+                });
+                if (meRes.ok) {
+                    const meData = await meRes.json();
+                    userId    = meData.id    || 0;
+                    userEmail = meData.email || userEmail;
+                    userName  = meData.username || userName;
+                }
+            } catch (_) {}
+
+            dispatch(setUser({
+                accessToken:  loginData.access_token,
+                refreshToken: loginData.refresh_token || "",
+                userId:       userId,
+                email:        userEmail,
+                username:     userName,
+            }));
+
+            // Go straight to onboarding
+            onNavigate("gender");
+
+        } catch (_) {
+            Alert.alert("Error", "Could not connect to server. Check your internet connection.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <ScrollView style={s.container} contentContainerStyle={s.scroll}>
+        <View style={s.container}>
+            <Image source={{ uri: "https://res.cloudinary.com/dgliirggm/image/upload/v1764674093/background_jojyek.jpg" }}
+                style={s.bg} contentFit="cover"/>
+            <Image source={{ uri: "https://res.cloudinary.com/dgliirggm/image/upload/v1764674093/logo_y5zeid.png" }}
+                style={s.logo} contentFit="contain"/>
+            <SafeAreaView style={s.safe}>
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kbv}>
+                    <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+                        <TouchableOpacity style={s.backBtn} onPress={() => onNavigate("display")}>
+                            <Text style={s.backTxt}>{"<"}</Text>
+                        </TouchableOpacity>
+                        <View style={s.content}>
+                            <Text style={s.title}>Create Account</Text>
+                            <Text style={s.sub}>Join Athletix and start your fitness journey</Text>
 
-            {/* Header */}
-            <View style={s.header}>
-                <Image source="https://res.cloudinary.com/dgliirggm/image/upload/v1764674093/logo_y5zeid.png"
-                    style={s.logo} contentFit="contain"/>
-                <TouchableOpacity style={s.settingsBtn} onPress={() => onNavigate("settings")} hitSlop={{top:12,bottom:12,left:12,right:12}}>
-                    <Image source="https://res.cloudinary.com/dgliirggm/image/upload/v1764732296/seting_vyelz2.png"
-                        style={s.settingsIcon} contentFit="contain"/>
-                </TouchableOpacity>
-            </View>
+                            <TextInput style={s.input} placeholder="Email" placeholderTextColor="#ccc"
+                                value={email} onChangeText={setEmail}
+                                keyboardType="email-address" autoCapitalize="none" editable={!loading}/>
 
-            {/* Greeting */}
-            <View style={s.greeting}>
-                <Text style={s.greetTxt}>Hello {username || "User"},</Text>
-                <Text style={s.greetSub}>{greeting} 👋</Text>
-                <Text style={s.dateTxt}>{dateStr}</Text>
-            </View>
+                            <TextInput style={s.input} placeholder="Username (min 3 chars)" placeholderTextColor="#ccc"
+                                value={username} onChangeText={setUsername}
+                                autoCapitalize="none" editable={!loading}/>
 
-            {/* Live stats row */}
-            <View style={s.statsRow}>
-                <View style={s.statBox}>
-                    <Text style={s.statNum}>{loading ? "—" : totalWorkouts}</Text>
-                    <Text style={s.statLbl}>Workouts</Text>
-                </View>
-                <View style={[s.statBox, s.statBoxMid]}>
-                    <Text style={s.statNum}>{loading ? "—" : streak}</Text>
-                    <Text style={s.statLbl}>Day Streak 🔥</Text>
-                </View>
-                <View style={s.statBox}>
-                    <Text style={s.statNum}>{loading ? "—" : xpPoints}</Text>
-                    <Text style={s.statLbl}>XP Points ⭐</Text>
-                </View>
-            </View>
+                            <View style={s.passRow}>
+                                <TextInput style={s.passInput} placeholder="Password (min 8 chars)" placeholderTextColor="#ccc"
+                                    value={password} onChangeText={setPassword}
+                                    secureTextEntry={!showPass} editable={!loading}/>
+                                <TouchableOpacity style={s.eye} onPress={() => setShowPass(!showPass)}>
+                                    <Text style={s.eyeTxt}>{showPass ? "hide" : "show"}</Text>
+                                </TouchableOpacity>
+                            </View>
 
-            {/* Today's workout card */}
-            <TouchableOpacity style={s.workoutCard} onPress={() => onNavigate("workoutSchedule")} activeOpacity={0.85}>
-                <Image source="https://res.cloudinary.com/dgliirggm/image/upload/v1764674093/main_page_ejn0tf.jpg"
-                    style={s.workoutImg} contentFit="cover"/>
-                <View style={s.workoutOverlay}>
-                    <Text style={s.workoutCardLabel}>Today's Workout Plan</Text>
-                    <Text style={s.workoutCardDay}>{dayLabel} — {todayFocus}</Text>
-                    <Text style={s.workoutCardPlan}>{planName}</Text>
-                    {isRestDay
-                        ? <View style={s.restBadge}><Text style={s.restBadgeTxt}>😴 Rest Day</Text></View>
-                        : <View style={s.startBadge}><Text style={s.startBadgeTxt}>Tap to view exercises →</Text></View>
-                    }
-                </View>
-            </TouchableOpacity>
+                            <TouchableOpacity style={[s.btn, loading && s.btnDis]} onPress={handleSignUp} disabled={loading}>
+                                {loading
+                                    ? <ActivityIndicator color="#FFF"/>
+                                    : <Text style={s.btnTxt}>Create Account</Text>}
+                            </TouchableOpacity>
 
-            {/* Module buttons */}
-            <TouchableOpacity style={s.moduleBtn} onPress={() => onNavigate("progress")} activeOpacity={0.85}>
-                <View style={s.moduleBtnInner}>
-                    <View>
-                        <Text style={s.moduleBtnTitle}>Progress Tracker</Text>
-                        <Text style={s.moduleBtnSub}>Review your stats & stay on track</Text>
-                    </View>
-                    <Text style={s.moduleBtnArrow}>→</Text>
-                </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={s.moduleBtn} onPress={() => onNavigate("formAnalysis")} activeOpacity={0.85}>
-                <View style={s.moduleBtnInner}>
-                    <View style={{flex:1}}>
-                        <Text style={s.moduleBtnTitle}>Form Analysis</Text>
-                        <Text style={s.moduleBtnSub}>Improve your form & reduce injury</Text>
-                    </View>
-                    <Image source="https://res.cloudinary.com/dgliirggm/image/upload/v1764693102/camera_kqmnd3.png"
-                        style={s.moduleIcon} contentFit="contain"/>
-                </View>
-            </TouchableOpacity>
-
-            {/* Arixa chatbot card */}
-            <View style={s.chatCard}>
-                <Image source="https://res.cloudinary.com/dgliirggm/image/upload/v1764674093/chat_a9uzwz.png"
-                    style={s.chatImg} contentFit="contain"/>
-                <View style={s.chatContent}>
-                    <Text style={s.chatTxt}>
-                        {"Hey! I'm Arixa. Your Virtual AI Trainer. I'm available to answer your fitness questions anytime."}
-                    </Text>
-                    <TouchableOpacity style={s.chatBtn} onPress={() => onNavigate("chat")}>
-                        <Text style={s.chatBtnTxt}>Chat now</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-        </ScrollView>
+                            <TouchableOpacity onPress={() => onNavigate("signin")} disabled={loading}>
+                                <Text style={s.link}>Already have an account? Sign In</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            </SafeAreaView>
+        </View>
     );
 }
 
 const s = StyleSheet.create({
-    container:       { flex:1, backgroundColor:"#000" },
-    scroll:          { flexGrow:1, paddingBottom:100 },
-
-    // Header
-    header:          { flexDirection:"row", justifyContent:"space-between", alignItems:"center", paddingHorizontal:20, paddingTop:52, paddingBottom:8 },
-    logo:            { width:160, height:56 },
-    settingsBtn:     { width:44, height:44, borderRadius:22, backgroundColor:"rgba(255,255,255,0.1)", justifyContent:"center", alignItems:"center" },
-    settingsIcon:    { width:26, height:26 },
-
-    // Greeting
-    greeting:        { paddingHorizontal:20, paddingTop:8, paddingBottom:16 },
-    greetTxt:        { fontSize:28, fontWeight:"700", color:"#FFF" },
-    greetSub:        { fontSize:20, fontWeight:"600", color:"#CCC", marginTop:2 },
-    dateTxt:         { fontSize:13, color:"#6A040F", fontWeight:"700", marginTop:4 },
-
-    // Stats row
-    statsRow:        { flexDirection:"row", marginHorizontal:20, marginBottom:16, gap:10 },
-    statBox:         { flex:1, backgroundColor:"#1a0505", borderRadius:14, padding:14, alignItems:"center", borderWidth:1, borderColor:"#390404" },
-    statBoxMid:      { borderColor:"#8B2F3F" },
-    statNum:         { fontSize:22, fontWeight:"800", color:"#FFF" },
-    statLbl:         { fontSize:11, color:"#AAA", marginTop:3, textAlign:"center" },
-
-    // Today workout card
-    workoutCard:     { marginHorizontal:20, borderRadius:20, overflow:"hidden", marginBottom:14, height:180 },
-    workoutImg:      { position:"absolute", width:"100%", height:"100%", borderRadius:20 },
-    workoutOverlay:  { flex:1, backgroundColor:"rgba(0,0,0,0.55)", padding:20, justifyContent:"flex-end" },
-    workoutCardLabel:{ fontSize:12, color:"#FFD700", fontWeight:"700", letterSpacing:0.5, marginBottom:4 },
-    workoutCardDay:  { fontSize:22, fontWeight:"800", color:"#FFF", marginBottom:2 },
-    workoutCardPlan: { fontSize:12, color:"#CCC", marginBottom:10 },
-    restBadge:       { backgroundColor:"rgba(60,60,60,0.85)", alignSelf:"flex-start", borderRadius:10, paddingHorizontal:12, paddingVertical:5 },
-    restBadgeTxt:    { color:"#FFF", fontSize:13 },
-    startBadge:      { backgroundColor:"rgba(139,47,63,0.9)", alignSelf:"flex-start", borderRadius:10, paddingHorizontal:12, paddingVertical:5 },
-    startBadgeTxt:   { color:"#FFF", fontSize:13, fontWeight:"600" },
-
-    // Module buttons
-    moduleBtn:       { marginHorizontal:20, marginBottom:10, backgroundColor:"#1a0505", borderRadius:16, borderWidth:1, borderColor:"#390404" },
-    moduleBtnInner:  { flexDirection:"row", alignItems:"center", padding:18 },
-    moduleBtnTitle:  { fontSize:20, fontWeight:"700", color:"#FFF", marginBottom:3 },
-    moduleBtnSub:    { fontSize:12, color:"#AAA" },
-    moduleBtnArrow:  { fontSize:22, color:"#8B2F3F", marginLeft:10 },
-    moduleIcon:      { width:44, height:44, marginLeft:10 },
-
-    // Chat card
-    chatCard:        { marginHorizontal:20, marginTop:4, backgroundColor:"#0d0000", borderRadius:16, borderWidth:1, borderColor:"#390404", flexDirection:"row", alignItems:"center", padding:16, gap:12 },
-    chatImg:         { width:90, height:60 },
-    chatContent:     { flex:1 },
-    chatTxt:         { fontSize:12, color:"#CCC", lineHeight:18, marginBottom:10 },
-    chatBtn:         { backgroundColor:"#501313", borderRadius:20, paddingHorizontal:18, paddingVertical:8, alignSelf:"flex-start" },
-    chatBtnTxt:      { color:"#FFF", fontWeight:"700", fontSize:14 },
+    container: { flex:1, backgroundColor:"#000" },
+    bg:        { position:"absolute", width:"100%", height:"100%" },
+    logo:      { position:"absolute", width:950, height:532, top:-34, left:-269 },
+    safe:      { flex:1 },
+    kbv:       { flex:1 },
+    scroll:    { flexGrow:1, paddingHorizontal:20, paddingBottom:40, paddingTop:350 },
+    content:   { width:"100%", alignItems:"center" },
+    backBtn:   { position:"absolute", top:20, left:20, zIndex:10, width:40, height:40, borderRadius:20, backgroundColor:"#FFF", justifyContent:"center", alignItems:"center" },
+    backTxt:   { color:"#000", fontSize:24, fontWeight:"bold" },
+    title:     { fontSize:32, color:"#FFF", fontWeight:"bold", marginBottom:8 },
+    sub:       { fontSize:13, color:"#CCC", marginBottom:30, textAlign:"center" },
+    input:     { width:"100%", height:50, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:10, paddingHorizontal:15, color:"#FFF", marginBottom:16, borderWidth:1, borderColor:"rgba(255,255,255,0.2)" },
+    passRow:   { width:"100%", flexDirection:"row", alignItems:"center", marginBottom:16 },
+    passInput: { flex:1, height:50, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:10, paddingHorizontal:15, paddingRight:60, color:"#FFF", borderWidth:1, borderColor:"rgba(255,255,255,0.2)" },
+    eye:       { position:"absolute", right:15, height:50, justifyContent:"center" },
+    eyeTxt:    { color:"#AAA", fontSize:12 },
+    btn:       { width:"100%", height:50, backgroundColor:"#8B2F3F", borderRadius:10, justifyContent:"center", alignItems:"center", marginBottom:16 },
+    btnDis:    { opacity:0.6 },
+    btnTxt:    { color:"#FFF", fontSize:18, fontWeight:"bold" },
+    link:      { color:"#FFF", marginTop:8 },
 });

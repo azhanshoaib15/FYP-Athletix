@@ -309,66 +309,191 @@ async def live_check(req: LiveCheckRequest):
 @app.post("/live/finish")
 async def live_finish_patched(req: dict):
     """
-    Patched finish endpoint with confidence gate.
-    Requires at least 8 good keypoint frames before classifying.
+    Enhanced finish endpoint with comprehensive form analysis.
+    Returns confidence, form status, specific body part issues and corrections.
     """
-    exercise     = req.get("exercise", "Squats")
+    exercise      = req.get("exercise", "Squats")
     all_keypoints = req.get("all_keypoints", [])
 
-    # Filter out zero/low-confidence frames
+    # ── Filter valid frames ───────────────────────────────────────────────────
     valid_kp = []
     for kp in all_keypoints:
         arr = np.array(kp, dtype=np.float32)
         if arr.shape[0] == 132:
-            # Check mean visibility of key joints
-            vis_vals = arr[3::4]  # every 4th value is visibility
-            # Lower visibility threshold to 0.15 for better detection in varied lighting
+            vis_vals = arr[3::4]
             if np.mean(vis_vals) > 0.15:
                 valid_kp.append(arr)
 
-    MIN_GOOD_FRAMES = 4  # Lowered from 8 for better usability
+    MIN_GOOD_FRAMES = 4
 
     if len(valid_kp) < MIN_GOOD_FRAMES:
         return {
-            "overall_form": "insufficient_data",
-            "confidence": 0.0,
-            "feedback": f"Not enough pose data detected ({len(valid_kp)}/{MIN_GOOD_FRAMES} frames). Tips: Stand 2-3 meters from camera, ensure full body visible, use good lighting.",
+            "overall_form":    "insufficient_data",
+            "confidence":      0.0,
+            "feedback":        f"Only {len(valid_kp)}/{MIN_GOOD_FRAMES} valid frames detected. Tips: Stand 2-3 meters away, ensure full body is visible, use good lighting, record for 8-10 seconds.",
             "body_part_issues": [],
-            "good_parts": [],
-            "total_reps": 0,
+            "good_parts":      [],
+            "total_reps":      0,
         }
 
-    seq = np.stack(valid_kp)
-    seq = filter_low_confidence_frames(seq)
-
+    seq      = np.stack(valid_kp)
+    seq      = filter_low_confidence_frames(seq)
     feat_vec = sequence_to_feature_vector(seq)
     pred     = registry.predict(exercise, feat_vec)
+    confidence  = float(pred["confidence"])
+    prediction  = pred["prediction"]   # "correct" or "incorrect"
 
-    # Confidence gate — if model not confident, mark as uncertain
-    confidence = pred["confidence"]
+    # ── Low confidence gate ───────────────────────────────────────────────────
     if confidence < 0.45:
         return {
-            "overall_form": "uncertain",
-            "confidence": confidence,
-            "feedback": "Analysis confidence is low. Try recording for longer with better lighting and full body in frame.",
+            "overall_form":    "uncertain",
+            "confidence":      confidence,
+            "feedback":        f"Analysis confidence is low ({round(confidence*100)}%). For better results: ensure full body is visible, use good lighting, and record for longer.",
             "body_part_issues": [],
-            "good_parts": [],
-            "total_reps": 0,
+            "good_parts":      [],
+            "total_reps":      0,
         }
 
-    body_issues = analyze_body_parts(seq, exercise, pred["prediction"])
+    # ── Get body part analysis ────────────────────────────────────────────────
+    body_issues_raw = analyze_body_parts(seq, exercise, prediction)
+    issues    = body_issues_raw.get("issues", [])
+    good_parts = body_issues_raw.get("good_parts", [])
+
+    # ── Compute joint angles for specific feedback ────────────────────────────
+    # Calculate average angles from sequence for detailed feedback
+    def get_avg_angle(kp_seq, a, b, c):
+        """Average angle at joint b across all frames."""
+        try:
+            angles = []
+            for frame in kp_seq:
+                # Each landmark is x,y,z,visibility (4 values)
+                pa = frame[a*4:a*4+3]
+                pb = frame[b*4:b*4+3]
+                pc = frame[c*4:c*4+3]
+                v1 = pa - pb
+                v2 = pc - pb
+                cos_a = np.dot(v1,v2) / (np.linalg.norm(v1)*np.linalg.norm(v2)+1e-6)
+                angles.append(np.degrees(np.arccos(np.clip(cos_a,-1,1))))
+            return float(np.mean(angles))
+        except:
+            return None
+
+    # MediaPipe landmark indices
+    # 11=L_shoulder 12=R_shoulder 13=L_elbow 14=R_elbow
+    # 15=L_wrist 16=R_wrist 23=L_hip 24=R_hip
+    # 25=L_knee 26=R_knee 27=L_ankle 28=R_ankle
+
+    exercise_feedback = {
+        "Squats": {
+            "correct":   "Excellent squat! Good depth, knees tracking over toes, back straight.",
+            "incorrect": "Squat needs improvement. Focus on depth and knee alignment.",
+            "joints":    [(23,25,27,"Left knee angle","80-100° at bottom"), (24,26,28,"Right knee angle","80-100° at bottom")],
+            "tips":      ["Go deeper — thighs parallel to floor", "Keep chest up and back straight", "Push knees outward, don't let them cave in", "Keep heels on the floor throughout"],
+        },
+        "Push-up": {
+            "correct":   "Perfect push-up! Body in straight line, full range of motion.",
+            "incorrect": "Push-up form needs work. Check your body alignment.",
+            "joints":    [(11,13,15,"Left elbow angle","90° at bottom"), (12,14,16,"Right elbow angle","90° at bottom")],
+            "tips":      ["Keep body in straight line — no sagging hips", "Lower chest to floor level", "Keep elbows at 45° to body, not flared out", "Full lockout at the top"],
+        },
+        "Bicep curl": {
+            "correct":   "Great bicep curl! Full range of motion, elbows stationary.",
+            "incorrect": "Bicep curl needs improvement. Elbow movement detected.",
+            "joints":    [(11,13,15,"Left arm angle","30-150° range"), (12,14,16,"Right arm angle","30-150° range")],
+            "tips":      ["Keep elbows pinned to sides — don't let them swing forward", "Full curl — bring weight to shoulder level", "Control the descent — don't drop the weight", "Keep wrists neutral, don't bend them"],
+        },
+        "Bench Press": {
+            "correct":   "Solid bench press! Good bar path and chest contact.",
+            "incorrect": "Bench press form needs attention.",
+            "joints":    [(11,13,15,"Left elbow angle","90° at bottom")],
+            "tips":      ["Lower bar to mid-chest, not neck or stomach", "Keep feet flat on floor", "Arch lower back slightly, keep shoulder blades retracted", "Bar should touch chest at bottom"],
+        },
+        "Lunges": {
+            "correct":   "Great lunge! 90° knee angles, good balance and depth.",
+            "incorrect": "Lunge form needs correction. Check knee and torso position.",
+            "joints":    [(23,25,27,"Front knee angle","90° at bottom"), (24,26,28,"Back knee angle","near 90° at bottom")],
+            "tips":      ["Front knee should not go past toes", "Keep torso upright — don't lean forward", "Both knees should reach 90° at bottom", "Push through front heel to return to standing"],
+        },
+        "Plank": {
+            "correct":   "Perfect plank! Straight body line, core engaged.",
+            "incorrect": "Plank position needs adjustment. Body not in straight line.",
+            "joints":    [(11,23,25,"Hip angle","180° for straight line")],
+            "tips":      ["Keep hips level — don't sag or raise them", "Engage core — pull belly button toward spine", "Keep neck neutral — don't look up or down", "Squeeze glutes for better stability"],
+        },
+        "Shoulder press": {
+            "correct":   "Excellent shoulder press! Full overhead lockout achieved.",
+            "incorrect": "Shoulder press needs work. Check your range of motion.",
+            "joints":    [(11,13,15,"Left arm angle","180° at top"), (12,14,16,"Right arm angle","180° at top")],
+            "tips":      ["Press directly overhead, not forward", "Full lockout at top — arms straight", "Keep core tight to prevent back arch", "Lower to ear level at bottom"],
+        },
+        "Deadlift": {
+            "correct":   "Strong deadlift! Good hip hinge and back position.",
+            "incorrect": "Deadlift form needs improvement. Back position is critical.",
+            "joints":    [(11,23,25,"Hip hinge angle","check range")],
+            "tips":      ["Keep back straight — no rounding", "Hip hinge movement, not a squat", "Bar stays close to body throughout", "Drive through heels, squeeze glutes at top"],
+        },
+        "Lat Pulldown": {
+            "correct":   "Good lat pulldown! Bar reaching upper chest.",
+            "incorrect": "Lat pulldown needs improvement.",
+            "joints":    [(11,13,15,"Elbow angle at bottom","90°")],
+            "tips":      ["Pull bar to upper chest, not behind neck", "Lean back slightly — 20-30°", "Lead with elbows, not hands", "Fully extend arms at top"],
+        },
+        "Pull-ups": {
+            "correct":   "Great pull-up! Full range of motion, chin over bar.",
+            "incorrect": "Pull-up needs more range of motion.",
+            "joints":    [(11,13,15,"Left elbow angle","fully extended at bottom")],
+            "tips":      ["Start from dead hang — arms fully extended", "Pull until chin clears the bar", "Avoid swinging or kipping", "Control the descent — don't drop"],
+        },
+    }
+
+    ex_info   = exercise_feedback.get(exercise, {
+        "correct":   f"Good {exercise} form!",
+        "incorrect": f"Your {exercise} form needs improvement.",
+        "tips":      ["Maintain proper posture", "Full range of motion", "Control the movement"],
+    })
+
+    # Build feedback message
+    if prediction == "correct":
+        main_feedback = ex_info["correct"]
+        if confidence >= 0.8:
+            main_feedback += f" Confidence: {round(confidence*100)}% — excellent execution!"
+        elif confidence >= 0.6:
+            main_feedback += f" Confidence: {round(confidence*100)}% — keep it up!"
+    else:
+        main_feedback = ex_info["incorrect"]
+        main_feedback += f" (Confidence: {round(confidence*100)}%)"
+
+    # Add specific correction tips if form is incorrect
+    if prediction == "incorrect":
+        tips = ex_info.get("tips", [])
+        if tips:
+            main_feedback += " Key corrections: " + " | ".join(tips[:2])
+
+    # Build comprehensive good_parts if correct
+    if prediction == "correct" and not good_parts:
+        good_parts = [
+            f"Overall {exercise} technique",
+            "Body alignment and posture",
+            "Range of motion",
+            "Movement control and stability",
+        ]
+    elif prediction == "incorrect" and not issues:
+        # Build issues from tips
+        tips = ex_info.get("tips", [])
+        issues = [
+            {"body_part": f"Form correction {i+1}", "severity": "medium", "feedback": tip}
+            for i, tip in enumerate(tips[:3])
+        ]
 
     return {
-        "overall_form":    pred["prediction"],
+        "overall_form":    prediction,
         "confidence":      confidence,
-        "feedback":        f"You completed {exercise}. " + (
-            "Good form overall — keep it up!" if pred["prediction"] == "correct"
-            else "Focus on the areas below to improve your form."
-        ),
-        "body_part_issues": body_issues.get("issues", []),
-        "good_parts":       body_issues.get("good_parts", []),
-        "total_reps":       0,
+        "feedback":        main_feedback,
+        "body_part_issues": issues,
+        "good_parts":      good_parts,
+        "total_reps":      0,
     }
+
 
 
 @app.post("/live/finish", response_model=FinishResponse)

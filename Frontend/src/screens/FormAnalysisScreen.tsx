@@ -642,23 +642,32 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
                                         </Text>
                                     </View>
 
-                                    {/* Confidence score */}
+                                            {/* Confidence gauge */}
                                     <View style={s.scoreRow}>
-                                        <View style={[s.scoreBox, {borderColor:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
-                                            <Text style={[s.scoreNum, {color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
+                                        <View style={[s.scoreBox, {borderColor:result.overall_form==='correct'?'#00FF88':'#FF4444', flex:2}]}>
+                                            <Text style={[s.scoreNum, {color:result.overall_form==='correct'?'#00FF88':'#FF4444', fontSize:36}]}>
                                                 {Math.round((result.confidence||0)*100)}%
                                             </Text>
-                                            <Text style={s.scoreLbl}>Form Score</Text>
+                                            <Text style={s.scoreLbl}>Confidence Score</Text>
+                                            <View style={s.confBar}>
+                                                <View style={[s.confFill, {
+                                                    width: `${Math.round((result.confidence||0)*100)}%` as any,
+                                                    backgroundColor: result.overall_form==='correct' ? '#00FF88' : '#FF4444'
+                                                }]}/>
+                                            </View>
+                                            <Text style={[s.scoreLbl, {marginTop:4}]}>
+                                                {(result.confidence||0) >= 0.8 ? '🎯 High confidence' :
+                                                 (result.confidence||0) >= 0.6 ? '👍 Good confidence' :
+                                                 '📊 Low confidence — try again with better positioning'}
+                                            </Text>
                                         </View>
                                         <View style={s.scoreBox}>
-                                            <Text style={[s.scoreNum, {fontSize:14, color:result.overall_form==='correct'?'#00FF88':'#FF4444'}]}>
-                                                {result.overall_form==='correct'?'✓ Correct':'✗ Incorrect'}
+                                            <Text style={{fontSize:32}}>{result.overall_form==='correct'?'✅':'❌'}</Text>
+                                            <Text style={[s.scoreNum, {fontSize:14, color:result.overall_form==='correct'?'#00FF88':'#FF4444', marginTop:4}]}>
+                                                {result.overall_form==='correct'?'CORRECT':'INCORRECT'}
                                             </Text>
                                             <Text style={s.scoreLbl}>Form Status</Text>
-                                        </View>
-                                        <View style={s.scoreBox}>
-                                            <Text style={[s.scoreNum, {color:'#00BFFF'}]}>{kpR.current.length}</Text>
-                                            <Text style={s.scoreLbl}>Frames</Text>
+                                            <Text style={[s.scoreLbl, {marginTop:4}]}>{kpR.current.length} frames</Text>
                                         </View>
                                     </View>
                                 </>
@@ -803,6 +812,8 @@ const s = StyleSheet.create({
     issueSev:        {color:'#FF6666',fontWeight:'400'},
     issueTxt:        {color:'#CCC',fontSize:12,marginTop:2,lineHeight:18},
     goodPart:        {color:'#00FF88',fontSize:13,marginBottom:4},
+    confBar:  { width:'100%', height:8, backgroundColor:'#333', borderRadius:4, marginTop:6, overflow:'hidden' },
+    confFill: { height:8, borderRadius:4 },
     savedBadge:      {backgroundColor:'rgba(0,100,0,0.3)',borderRadius:10,padding:10,alignItems:'center',marginBottom:10,borderWidth:1,borderColor:'rgba(0,200,0,0.3)'},
     savedTxt:        {color:'#00FF88',fontSize:12},
     retryBtn:        {backgroundColor:'#8B2F3F',borderRadius:30,padding:15,alignItems:'center'},

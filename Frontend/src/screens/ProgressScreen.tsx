@@ -6,6 +6,7 @@ import {
 import { VictoryAxis, VictoryBar, VictoryChart, VictoryLine, VictoryPie, VictoryTheme } from 'victory-native';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store/store';
+import { useAppData } from '../context/AppDataContext';
 
 const SW = Dimensions.get('window').width;
 const API_URL = 'https://fyp-athletix-production.up.railway.app';
@@ -39,58 +40,44 @@ const calcUpdatedMacros = (profile: any, caloriesBurned: number) => {
 
 export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
     const token = useSelector((state: RootState) => state.user.accessToken);
+    const { data, refreshSilent } = useAppData();
 
-    const [loading,      setLoading]      = useState(true);
-    const [progress,     setProgress]     = useState<any[]>([]);
-    const [profile,      setProfile]      = useState<any>(null);
-    const [latest,       setLatest]       = useState<any>(null);
-    const [sessions,     setSessions]     = useState<any[]>([]);
+    // Use global context data — single source of truth
+    const loading  = data.loading;
+    const progress = data.progress;
+    const sessions = data.sessions;
+    // Build profile object from global context
+    const profile = {
+        weight_kg:               data.weight_kg,
+        height_cm:               data.height_cm,
+        body_fat_percentage:     data.body_fat_percentage,
+        fitness_goal:            data.fitness_goal,
+        fitness_level:           data.fitness_level,
+        daily_calorie_target:    data.daily_calorie_target,
+        protein_target_g:        data.protein_target_g,
+        carbs_target_g:          data.carbs_target_g,
+        fat_target_g:            data.fat_target_g,
+        weekly_workout_days:     data.weekly_workout_days,
+        workout_duration_minutes:data.workout_duration_minutes,
+        diet_type:               data.diet_type,
+        gender:                  data.gender,
+        date_of_birth:           data.date_of_birth,
+    };
+    // Latest from most recent progress record
+    const latest = progress.length > 0 ? progress[0] : null;
+
     const [showLogForm,  setShowLogForm]  = useState(false);
     const [inputWeight,  setInputWeight]  = useState('');
     const [inputBodyFat, setInputBodyFat] = useState('');
     const [logging,      setLogging]      = useState(false);
 
-    const fetchAllData = useCallback(async (silent = false) => {
-        if (!silent) setLoading(true);
-        try {
-            const h = { Authorization: `Bearer ${token}` };
-            // Fetch all in parallel - fast
-            const [progRes, profRes, sessRes] = await Promise.all([
-                fetch(`${API_URL}/api/v1/progress/?limit=30`, { headers: h }),
-                fetch(`${API_URL}/api/v1/users/me/profile`,   { headers: h }),
-                fetch(`${API_URL}/api/v1/workouts/sessions`,   { headers: h }),
-            ]);
+    // Pre-fill inputs when global data loads
+    useEffect(() => {
+        if (data.weight_kg)           setInputWeight(String(data.weight_kg));
+        if (data.body_fat_percentage)  setInputBodyFat(String(data.body_fat_percentage));
+    }, [data.weight_kg, data.body_fat_percentage]);
 
-            const [progData, profData, sessData] = await Promise.all([
-                progRes.json(), profRes.json(), sessRes.json()
-            ]);
-
-            const prog = Array.isArray(progData) ? progData : [];
-            const sess = Array.isArray(sessData) ? sessData : [];
-            const lat  = prog.length > 0 ? prog[0] : null;
-
-            setProgress(prog);
-            setSessions(sess);
-            setLatest(lat);
-            setProfile(profData);
-
-            // Pre-fill inputs with most recent values
-            const latestWeight = lat?.weight_kg || profData?.weight_kg;
-            const latestBF     = lat?.body_fat_percentage
-                || profData?.body_fat_percentage
-                || calcBF(profData);
-
-            if (latestWeight) setInputWeight(String(latestWeight));
-            if (latestBF)     setInputBodyFat(String(latestBF));
-
-        } catch (e) {
-            // silent fail — user sees loading state
-        } finally {
-            setLoading(false);
-        }
-    }, [token]);
-
-    useEffect(() => { fetchAllData(); }, []);
+    useEffect(() => { refreshSilent(); }, []);
 
     const logTodayProgress = async () => {
         if (!inputWeight && !inputBodyFat) {
@@ -120,7 +107,7 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
                         }),
                     }).catch(() => {});
                 }
-                await fetchAllData(true);
+                await refreshSilent();
                 Alert.alert('Saved!', 'Progress logged successfully.');
             } else {
                 const err = await res.json().catch(() => ({}));

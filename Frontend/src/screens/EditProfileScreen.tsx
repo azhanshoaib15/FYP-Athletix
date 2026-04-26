@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
+import { useAppData } from "../context/AppDataContext";
 import { setPersonalInfo, setFitnessGoal } from "../store/slices/userSlice";
 import type { RootState } from "../store/store";
 
@@ -24,6 +25,7 @@ const LEVELS = [
 export default function EditProfileScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
     const dispatch   = useDispatch();
     const token      = useSelector((state: RootState) => state.user.accessToken);
+    const { refreshSilent } = useAppData();
 
     const [height,   setHeight]   = useState("");
     const [weight,   setWeight]   = useState("");
@@ -97,6 +99,8 @@ export default function EditProfileScreen({ onNavigate }: { onNavigate: (screen:
             if (res.ok) {
                 dispatch(setPersonalInfo({ height_cm: h, weight_kg: w }));
                 dispatch(setFitnessGoal({ fitness_goal: goal, fitness_level: level }));
+                // Refresh global context — weight/macros update everywhere
+                refreshSilent();
                 Alert.alert("Saved!", "Profile updated successfully.", [
                     { text: "OK", onPress: () => onNavigate("settings") }
                 ]);

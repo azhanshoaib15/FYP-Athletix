@@ -24,6 +24,7 @@ import SignUpScreen from "./src/screens/SignUpScreen";
 import VerificationScreen from "./src/screens/VerificationScreen";
 import WorkoutScheduleScreen from "./src/screens/WorkoutScheduleScreen";
 import EditProfileScreen from "./src/screens/EditProfileScreen";
+import { AppDataProvider } from "./src/context/AppDataContext";
 
 function AppContent() {
     const dispatch = useDispatch();
@@ -108,9 +109,11 @@ function AppContent() {
     };
 
     return (
-        <SafeAreaProvider>
-            {renderScreen()}
-        </SafeAreaProvider>
+        <AppDataProvider>
+            <SafeAreaProvider>
+                {renderScreen()}
+            </SafeAreaProvider>
+        </AppDataProvider>
     );
 }
 

@@ -6,6 +6,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store/store';
+import { useAppData } from '../context/AppDataContext';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -195,6 +196,7 @@ function getDayStatus(
 export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScreenProps) {
     const token       = useSelector((state: RootState) => state.user.accessToken);
     const fitnessGoal = useSelector((state: RootState) => state.user.fitness_goal) || 'general_fitness';
+    const { refreshSilent } = useAppData();
     const planKey     = GOAL_TO_PLAN[fitnessGoal] || 'general_fitness';
     const plan        = PLANS[planKey];
     const accent      = GOAL_COLORS[planKey] || '#390404';
@@ -309,6 +311,9 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                     const { loggedKey } = getStorageKeys(signupDate);
                     await AsyncStorage.setItem(loggedKey, JSON.stringify(newLogged)).catch(() => {});
                 }
+                // Refresh global context so ALL screens update immediately
+                refreshSilent();
+
                 Alert.alert('Logged!',
                     tickedCount + ' exercise' + (tickedCount > 1 ? 's' : '') +
                     ' logged. ' + totalCal + ' kcal added to Progress.',

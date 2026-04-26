@@ -322,16 +322,17 @@ async def live_finish_patched(req: dict):
         if arr.shape[0] == 132:
             # Check mean visibility of key joints
             vis_vals = arr[3::4]  # every 4th value is visibility
-            if np.mean(vis_vals) > 0.25:
+            # Lower visibility threshold to 0.15 for better detection in varied lighting
+            if np.mean(vis_vals) > 0.15:
                 valid_kp.append(arr)
 
-    MIN_GOOD_FRAMES = 8
+    MIN_GOOD_FRAMES = 4  # Lowered from 8 for better usability
 
     if len(valid_kp) < MIN_GOOD_FRAMES:
         return {
             "overall_form": "insufficient_data",
             "confidence": 0.0,
-            "feedback": f"Not enough valid pose frames detected ({len(valid_kp)}/{MIN_GOOD_FRAMES} required). Make sure your full body is visible and lighting is good.",
+            "feedback": f"Not enough pose data detected ({len(valid_kp)}/{MIN_GOOD_FRAMES} frames). Tips: Stand 2-3 meters from camera, ensure full body visible, use good lighting.",
             "body_part_issues": [],
             "good_parts": [],
             "total_reps": 0,
@@ -345,7 +346,7 @@ async def live_finish_patched(req: dict):
 
     # Confidence gate — if model not confident, mark as uncertain
     confidence = pred["confidence"]
-    if confidence < 0.58:
+    if confidence < 0.45:
         return {
             "overall_form": "uncertain",
             "confidence": confidence,

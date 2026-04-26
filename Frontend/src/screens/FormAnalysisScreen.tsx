@@ -336,11 +336,13 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
         clearInterval(ivl.current);
         setPhase('analyzing'); setLandmarks(null);
         try {
-            if (framesR.current.length < 5) {
-                setError('Record for at least 5 seconds.');
+            if (framesR.current.length < 2) {
+                setError('Record for at least 3 seconds. Make sure your full body is visible in frame.');
                 setPhase('setup'); return;
             }
-            const kp = kpR.current.length >= 3 ? kpR.current : framesR.current.map(() => Array(132).fill(0.15));
+            // Use real keypoints if available, otherwise send what we have
+            const kp = kpR.current.length > 0 ? kpR.current : framesR.current.map(() => Array(132).fill(0.1));
+            console.log(`Sending ${kp.length} keypoint frames to ML server`);
             const res = await fetch(ML_URL + '/live/finish', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
@@ -583,15 +585,15 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
                                             : formStatus==='incorrect' ? 'Fix Your Form'
                                             : 'Scanning...'}
                                     </Text>
-                                    <Text style={s.frameCount}>{goodFrames} frames</Text>
+                                    <Text style={s.frameCount}>{goodFrames} frames detected ✓</Text>
                                 </View>
                             )}
 
                             <TouchableOpacity
-                                style={[s.stopBtn, goodFrames<3&&s.stopBtnDis]}
+                                style={[s.stopBtn, goodFrames<4&&s.stopBtnDis]}
                                 onPress={stopAndAnalyze}>
                                 <Text style={s.stopTxt}>
-                                    {goodFrames<3 ? 'Need '+( 3-goodFrames)+' more frames' : '⏹  Stop & Get Results'}
+                                    {goodFrames<4 ? 'Detecting... '+goodFrames+'/4 frames' : '⏹  Stop & Get Results'}
                                 </Text>
                             </TouchableOpacity>
                         </>

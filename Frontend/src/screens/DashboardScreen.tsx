@@ -63,9 +63,10 @@ export default function DashboardScreen({ onNavigate }: { onNavigate: (screen: a
         if (!accessToken) { setLoading(false); return; }
         try {
             const h = { Authorization: "Bearer " + accessToken };
-            const [latestRes, sessionsRes] = await Promise.all([
-                fetch(API_URL + "/api/v1/progress/latest", { headers: h }),
-                fetch(API_URL + "/api/v1/workouts/sessions",  { headers: h }),
+            const [latestRes, sessionsRes, progressRes] = await Promise.all([
+                fetch(API_URL + "/api/v1/progress/latest",  { headers: h }),
+                fetch(API_URL + "/api/v1/workouts/sessions", { headers: h }),
+                fetch(API_URL + "/api/v1/progress/?limit=30", { headers: h }),
             ]);
             if (latestRes.ok) {
                 const lat = await latestRes.json();
@@ -74,7 +75,15 @@ export default function DashboardScreen({ onNavigate }: { onNavigate: (screen: a
             }
             if (sessionsRes.ok) {
                 const ses = await sessionsRes.json();
-                setTotalWorkouts(Array.isArray(ses) ? ses.length : 0);
+                const sessCount = Array.isArray(ses) ? ses.length : 0;
+                let progressWkts = 0;
+                if (progressRes.ok) {
+                    const prog = await progressRes.json();
+                    progressWkts = Array.isArray(prog)
+                        ? prog.filter((p: any) => (p.workouts_completed || 0) > 0).length
+                        : 0;
+                }
+                setTotalWorkouts(sessCount + progressWkts);
             }
         } catch (_) {}
         setLoading(false);

@@ -140,21 +140,23 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
         const labels  = ['M','T','W','T','F','S','S'];
         const counts  = [0,0,0,0,0,0,0];
         const now     = new Date();
+        // Count from workout sessions
         sessions.forEach((s: any) => {
             const d    = new Date(s.started_at);
-            const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
+            const diff = (now.getTime() - d.getTime()) / 86400000;
             if (diff < 7) {
                 const idx = d.getDay() === 0 ? 6 : d.getDay() - 1;
                 counts[idx]++;
             }
         });
+        // Count from progress records with workouts_completed > 0
         progress.forEach((p: any) => {
             if ((p.workouts_completed || 0) > 0) {
                 const d    = new Date(p.recorded_at);
-                const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
+                const diff = (now.getTime() - d.getTime()) / 86400000;
                 if (diff < 7) {
                     const idx = d.getDay() === 0 ? 6 : d.getDay() - 1;
-                    counts[idx] = Math.min(counts[idx] + 1, 10);
+                    counts[idx]++;
                 }
             }
         });
@@ -168,13 +170,19 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
             .slice(0, 10)
             .reverse();
         if (valid.length === 0) return null;
-        return valid.map((p: any) => {
+        // Need at least 1 point — add duplicate if only 1 so line renders
+        const points = valid.map((p: any) => {
             const d = new Date(p.recorded_at);
             return {
                 x: d.getDate() + "/" + (d.getMonth() + 1),
                 y: Math.round(parseFloat(p.weight_kg) * 10) / 10,
             };
         });
+        if (points.length === 1) {
+            // Add a second identical point so line chart renders
+            points.push({ ...points[0] });
+        }
+        return points;
     };
 
     // Weight domain with outlier protection
@@ -227,7 +235,11 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
     const weeklyData  = useMemo(() => buildWeeklyData(),  [sessions, progress]);
     const weightData  = useMemo(() => buildWeightData(),  [progress]);
     const macroResult = useMemo(() => buildMacroData(),   [profile, progress]);
-    const hasWorkouts = useMemo(() => weeklyData.some((d: any) => d.y > 0), [weeklyData]);
+    const hasWorkouts = useMemo(() => {
+        const hasSession = sessions.length > 0;
+        const hasProgress = progress.some((p: any) => (p.workouts_completed || 0) > 0);
+        return weeklyData.some((d: any) => d.y > 0) || hasSession || hasProgress;
+    }, [weeklyData, sessions, progress]);
 
     const currentWeight  = latest?.weight_kg   || profile?.weight_kg   || null;
     const currentHeight  = profile?.height_cm  || null;
@@ -236,8 +248,9 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
         || calcBF(profile);
     const streak         = latest?.streak_days || 0;
     const xp             = latest?.xp_points   || 0;
+    // Count workouts from BOTH sessions AND progress records with workouts logged
     const progressWkts   = progress.filter((p: any) => (p.workouts_completed || 0) > 0).length;
-    const totalWorkouts  = Math.max(sessions.length, progressWkts);
+    const totalWorkouts  = sessions.length + progressWkts;
     const totalCalBurned = progress
         .filter((p: any) => {
             const diff = Math.floor((Date.now() - new Date(p.recorded_at).getTime()) / 86400000);

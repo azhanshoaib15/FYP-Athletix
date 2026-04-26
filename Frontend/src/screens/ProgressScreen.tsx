@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
     ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet,
     Text, TextInput, TouchableOpacity, View
@@ -97,7 +97,7 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
             });
             if (res.ok) {
                 setShowLogForm(false);
-                // Also update profile weight so it stays in sync
+                // Update profile weight so it stays in sync everywhere
                 if (inputWeight && profile) {
                     await fetch(`${API_URL}/api/v1/users/me/profile`, {
                         method: 'PUT', headers: h,
@@ -107,7 +107,8 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
                         }),
                     }).catch(() => {});
                 }
-                await refreshSilent();
+                // Refresh AFTER all saves complete — updates all screens
+                refreshSilent();
                 Alert.alert('Saved!', 'Progress logged successfully.');
             } else {
                 const err = await res.json().catch(() => ({}));

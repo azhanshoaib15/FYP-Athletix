@@ -1,7 +1,10 @@
 import { Image } from 'expo-image';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import type { RootState } from '../store/store';
+
+const API_URL = 'https://fyp-athletix-production.up.railway.app';
 import { setGender } from '../store/slices/userSlice';
 
 interface GenderSelectionProps {
@@ -10,9 +13,20 @@ interface GenderSelectionProps {
 
 export default function GenderSelectionScreen({ onNavigate }: GenderSelectionProps) {
     const dispatch = useDispatch();
+    const token = useSelector((state: RootState) => state.user.accessToken);
+
+    const token = useSelector((state: RootState) => state.user.accessToken);
 
     const handleSelect = (gender: string) => {
         dispatch(setGender(gender));
+        // Save to backend - fire and forget
+        if (token) {
+            fetch('https://fyp-athletix-production.up.railway.app/api/v1/users/me/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ gender }),
+            }).catch(() => {});
+        }
         onNavigate('personalinfo');
     };
 

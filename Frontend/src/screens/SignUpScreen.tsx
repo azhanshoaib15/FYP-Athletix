@@ -2,38 +2,32 @@ import { Image } from "expo-image";
 import { useState, useRef } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useDispatch } from "react-redux";
+import { setUser } from "../store/slices/userSlice";
 
 const API_URL = "https://fyp-athletix-production.up.railway.app";
 
 export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any) => void }) {
-    const [email, setEmail]       = useState("");
+    const dispatch = useDispatch();
+    const [email,    setEmail]    = useState("");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
-    const [loading, setLoading]   = useState(false);
+    const [loading,  setLoading]  = useState(false);
     const [showPass, setShowPass] = useState(false);
-    const scrollRef = useRef<ScrollView>(null);
 
-    // Parse any error shape from FastAPI into a readable string
     const parseError = (err: any): string => {
         try {
-            // FastAPI validation error: { detail: [{msg, loc, type}] }
             if (err?.detail) {
                 if (typeof err.detail === "string") return err.detail;
-                if (Array.isArray(err.detail)) {
-                    return err.detail.map((e: any) => e.msg || JSON.stringify(e)).join(", ");
-                }
+                if (Array.isArray(err.detail)) return err.detail.map((e: any) => e.msg || JSON.stringify(e)).join(", ");
                 return JSON.stringify(err.detail);
             }
-            if (err?.message && typeof err.message === "string") return err.message;
             if (typeof err === "string") return err;
             return "Something went wrong. Please try again.";
-        } catch (_) {
-            return "Something went wrong. Please try again.";
-        }
+        } catch (_) { return "Something went wrong. Please try again."; }
     };
 
     const handleSignUp = async () => {
-        // Validation
         if (!email || !username || !password) {
             Alert.alert("Error", "Please fill in all fields");
             return;
@@ -54,44 +48,65 @@ export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any)
 
         setLoading(true);
         try {
-            // Step 1: Register account
+            // Step 1: Register
             const regRes = await fetch(`${API_URL}/api/v1/auth/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, username, password }),
+                body: JSON.stringify({ email: email.trim().toLowerCase(), username: username.trim(), password }),
             });
 
             if (!regRes.ok) {
-                const errData = await regRes.json().catch(() => ({}));
-                // Check for duplicate email/username
-                const errStr = parseError(errData).toLowerCase();
-                if (regRes.status === 409 || errStr.includes("already") || errStr.includes("exist") || errStr.includes("duplicate")) {
+                let errMsg = "Sign up failed. Please try again.";
+                try {
+                    const errData = await regRes.json();
+                    if (typeof errData.detail === "string") {
+                        errMsg = errData.detail;
+                    } else if (Array.isArray(errData.detail)) {
+                        errMsg = errData.detail.map((e: any) => e.msg || "Invalid input").join(", ");
+                    }
+                } catch (_) {}
+                const lower = errMsg.toLowerCase();
+                if (lower.includes("already") || lower.includes("exist") || regRes.status === 409) {
                     Alert.alert("Account Exists", "An account with this email or username already exists. Please sign in instead.");
                 } else {
-                    Alert.alert("Sign Up Failed", parseError(errData));
+                    Alert.alert("Sign Up Failed", errMsg);
                 }
                 return;
             }
 
-            // Step 2: Send OTP to email for verification
-            const otpRes = await fetch(`${API_URL}/api/v1/auth/send-otp`, {
+            // Step 2: Auto-login after registration
+            const loginRes = await fetch(`${API_URL}/api/v1/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email }),
+                body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
             });
 
-            if (otpRes.ok) {
-                // Navigate to verification screen with email + password
-                onNavigate({ screen: "verification", email, password, username });
-            } else {
-                // OTP send failed - still proceed but warn
-                Alert.alert(
-                    "Verification Email Failed",
-                    "Account created but verification email could not be sent. You can verify later.",
-                    [{ text: "Continue", onPress: () => onNavigate({ screen: "verification", email, password, username }) }]
-                );
+            if (!loginRes.ok) {
+                Alert.alert("Error", "Account created but login failed. Please sign in manually.");
+                onNavigate("signin");
+                return;
             }
-        } catch (err: any) {
+
+            const loginData = await loginRes.json();
+
+            // Step 3: Get user info
+            const meRes = await fetch(`${API_URL}/api/v1/auth/me`, {
+                headers: { Authorization: `Bearer ${loginData.access_token}` },
+            });
+            const meData = await meRes.json();
+
+            dispatch(setUser({
+                accessToken:  loginData.access_token,
+                refreshToken: loginData.refresh_token || "",
+                userId:       meData.id,
+                email:        meData.email,
+                username:     meData.username,
+            }));
+
+            // Go straight to onboarding
+            onNavigate("gender");
+
+        } catch (_) {
             Alert.alert("Error", "Could not connect to server. Check your internet connection.");
         } finally {
             setLoading(false);
@@ -106,16 +121,13 @@ export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any)
                 style={s.logo} contentFit="contain"/>
             <SafeAreaView style={s.safe}>
                 <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kbv}>
-                    <ScrollView ref={scrollRef} contentContainerStyle={s.scroll}
-                        keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-
+                    <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
                         <TouchableOpacity style={s.backBtn} onPress={() => onNavigate("display")}>
                             <Text style={s.backTxt}>{"<"}</Text>
                         </TouchableOpacity>
-
                         <View style={s.content}>
                             <Text style={s.title}>Create Account</Text>
-                            <Text style={s.sub}>A verification code will be sent to your email</Text>
+                            <Text style={s.sub}>Join Athletix and start your fitness journey</Text>
 
                             <TextInput style={s.input} placeholder="Email" placeholderTextColor="#ccc"
                                 value={email} onChangeText={setEmail}
@@ -130,7 +142,7 @@ export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any)
                                     value={password} onChangeText={setPassword}
                                     secureTextEntry={!showPass} editable={!loading}/>
                                 <TouchableOpacity style={s.eye} onPress={() => setShowPass(!showPass)}>
-                                    <Text style={s.eyeTxt}>{showPass ? "🙈" : "👁"}</Text>
+                                    <Text style={s.eyeTxt}>{showPass ? "hide" : "show"}</Text>
                                 </TouchableOpacity>
                             </View>
 
@@ -152,24 +164,24 @@ export default function SignUpScreen({ onNavigate }: { onNavigate: (screen: any)
 }
 
 const s = StyleSheet.create({
-    container: {flex:1,backgroundColor:"#000"},
-    bg:        {position:"absolute",width:"100%",height:"100%"},
-    logo:      {position:"absolute",width:950,height:532,top:-34,left:-269},
-    safe:      {flex:1},
-    kbv:       {flex:1},
-    scroll:    {flexGrow:1,paddingHorizontal:20,paddingBottom:40,paddingTop:350},
-    content:   {width:"100%",alignItems:"center"},
-    backBtn:   {position:"absolute",top:20,left:20,zIndex:10,width:40,height:40,borderRadius:20,backgroundColor:"#FFF",justifyContent:"center",alignItems:"center"},
-    backTxt:   {color:"#000",fontSize:24,fontWeight:"bold"},
-    title:     {fontSize:32,color:"#FFF",fontWeight:"bold",marginBottom:8},
-    sub:       {fontSize:13,color:"#CCC",marginBottom:30,textAlign:"center"},
-    input:     {width:"100%",height:50,backgroundColor:"rgba(255,255,255,0.1)",borderRadius:10,paddingHorizontal:15,color:"#FFF",marginBottom:16,borderWidth:1,borderColor:"rgba(255,255,255,0.2)"},
-    passRow:   {width:"100%",flexDirection:"row",alignItems:"center",marginBottom:16},
-    passInput: {flex:1,height:50,backgroundColor:"rgba(255,255,255,0.1)",borderRadius:10,paddingHorizontal:15,paddingRight:50,color:"#FFF",borderWidth:1,borderColor:"rgba(255,255,255,0.2)"},
-    eye:       {position:"absolute",right:15,height:50,justifyContent:"center"},
-    eyeTxt:    {fontSize:20},
-    btn:       {width:"100%",height:50,backgroundColor:"#8B2F3F",borderRadius:10,justifyContent:"center",alignItems:"center",marginBottom:16},
-    btnDis:    {opacity:0.6},
-    btnTxt:    {color:"#FFF",fontSize:18,fontWeight:"bold"},
-    link:      {color:"#FFF",marginTop:8},
+    container: { flex:1, backgroundColor:"#000" },
+    bg:        { position:"absolute", width:"100%", height:"100%" },
+    logo:      { position:"absolute", width:950, height:532, top:-34, left:-269 },
+    safe:      { flex:1 },
+    kbv:       { flex:1 },
+    scroll:    { flexGrow:1, paddingHorizontal:20, paddingBottom:40, paddingTop:350 },
+    content:   { width:"100%", alignItems:"center" },
+    backBtn:   { position:"absolute", top:20, left:20, zIndex:10, width:40, height:40, borderRadius:20, backgroundColor:"#FFF", justifyContent:"center", alignItems:"center" },
+    backTxt:   { color:"#000", fontSize:24, fontWeight:"bold" },
+    title:     { fontSize:32, color:"#FFF", fontWeight:"bold", marginBottom:8 },
+    sub:       { fontSize:13, color:"#CCC", marginBottom:30, textAlign:"center" },
+    input:     { width:"100%", height:50, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:10, paddingHorizontal:15, color:"#FFF", marginBottom:16, borderWidth:1, borderColor:"rgba(255,255,255,0.2)" },
+    passRow:   { width:"100%", flexDirection:"row", alignItems:"center", marginBottom:16 },
+    passInput: { flex:1, height:50, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:10, paddingHorizontal:15, paddingRight:60, color:"#FFF", borderWidth:1, borderColor:"rgba(255,255,255,0.2)" },
+    eye:       { position:"absolute", right:15, height:50, justifyContent:"center" },
+    eyeTxt:    { color:"#AAA", fontSize:12 },
+    btn:       { width:"100%", height:50, backgroundColor:"#8B2F3F", borderRadius:10, justifyContent:"center", alignItems:"center", marginBottom:16 },
+    btnDis:    { opacity:0.6 },
+    btnTxt:    { color:"#FFF", fontSize:18, fontWeight:"bold" },
+    link:      { color:"#FFF", marginTop:8 },
 });

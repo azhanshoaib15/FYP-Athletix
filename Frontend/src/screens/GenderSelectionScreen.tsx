@@ -15,7 +15,6 @@ export default function GenderSelectionScreen({ onNavigate }: GenderSelectionPro
     const dispatch = useDispatch();
     const token = useSelector((state: RootState) => state.user.accessToken);
 
-    const token = useSelector((state: RootState) => state.user.accessToken);
 
     const handleSelect = (gender: string) => {
         dispatch(setGender(gender));

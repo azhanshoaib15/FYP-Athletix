@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 const getApiUrl = () => {
-    return "https://fyp-athletix-production.up.railway.app";
+    return "http://192.168.1.27:8000";
 };const API_URL = getApiUrl();
 class ApiError extends Error {
     status: number;

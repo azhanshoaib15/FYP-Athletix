@@ -139,12 +139,24 @@ def feature_dim() -> int:
 
 # ── Visibility filtering ─────────────────────────────────────────────────────
 
-def filter_low_confidence_frames(seq: np.ndarray, min_visibility: float = 0.3) -> np.ndarray:
+def filter_low_confidence_frames(seq: np.ndarray, min_visibility: float = 0.2) -> np.ndarray:
     """
-    Drop frames where the mean landmark visibility is below threshold.
-    Keeps at least 5 frames even if all are low-confidence.
+    Improved filtering:
+    - Uses only important joints
+    - Keeps enough frames for analysis
     """
-    vis = seq.reshape(len(seq), 33, 4)[:, :, 3].mean(axis=1)  # (frames,)
+
+    IMPORTANT_LANDMARKS = [11, 12, 23, 24, 25, 26, 27, 28]  # shoulders, hips, knees, ankles
+
+    lm = seq.reshape(len(seq), 33, 4)
+
+    vis = lm[:, IMPORTANT_LANDMARKS, 3].mean(axis=1)
+
     mask = vis >= min_visibility
     filtered = seq[mask]
-    return filtered if len(filtered) >= 5 else seq
+
+    # Ensure enough frames survive
+    if len(filtered) < 15:
+        return seq
+
+    return filtered

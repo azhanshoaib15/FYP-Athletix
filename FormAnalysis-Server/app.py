@@ -323,8 +323,11 @@ async def live_finish_patched(req: dict):
             vis_vals = arr[3::4]
             if np.mean(vis_vals) > 0.15:
                 valid_kp.append(arr)
+    
+    print(f"Total frames received: {len(all_keypoints)}")
+    print(f"After filtering: {len(valid_kp)}")
 
-    MIN_GOOD_FRAMES = 4
+    MIN_GOOD_FRAMES = 20
 
     if len(valid_kp) < MIN_GOOD_FRAMES:
         return {
@@ -355,7 +358,7 @@ async def live_finish_patched(req: dict):
         }
 
     # ── Get body part analysis ────────────────────────────────────────────────
-    body_issues_raw = analyze_body_parts(seq, exercise, prediction)
+    body_issues_raw = analyze_body_parts(seq, exercise)
     issues    = body_issues_raw.get("issues", [])
     good_parts = body_issues_raw.get("good_parts", [])
 

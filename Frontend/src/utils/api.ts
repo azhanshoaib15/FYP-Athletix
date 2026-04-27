@@ -4,7 +4,7 @@
 import { store } from '../store/store';
 import { logout } from '../store/slices/userSlice';
 
-export const API_URL = 'https://fyp-athletix-production.up.railway.app';
+export const API_URL = 'http://192.168.1.27:8000';
 export const ML_URL  = 'https://desirable-playfulness-production-a1dd.up.railway.app';
 
 export const apiFetch = async (

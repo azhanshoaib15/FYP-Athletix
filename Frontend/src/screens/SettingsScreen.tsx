@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
@@ -14,6 +15,9 @@ export default function SettingsScreen({ onNavigate }: { onNavigate: (screen: an
     const [loading, setLoading] = useState(true);
 
     useEffect(() => { fetchProfile(); }, []);
+
+    // Refresh when returning from Edit Profile
+    useFocusEffect(useCallback(() => { fetchProfile(); }, []));
 
     const fetchProfile = async () => {
         try {

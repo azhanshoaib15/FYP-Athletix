@@ -333,49 +333,108 @@ export default function FormAnalysisScreen({onNavigate}: Props) {
     };
 
     const stopAndAnalyze = async () => {
+        // Stop capture interval immediately
         clearInterval(ivl.current);
-        setPhase('analyzing'); setLandmarks(null);
+        ivl.current = null;
+        isCapturing.current = false;
+        setPhase('analyzing');
+        setLandmarks(null);
+
+        // Safety: if somehow stuck in analyzing after 15s, reset
+        const safetyTimer = setTimeout(() => {
+            setError('Analysis timed out. Please try again.');
+            setPhase('setup');
+        }, 15000);
+
         try {
             if (framesR.current.length < 2) {
-                setError('Record for at least 3 seconds. Make sure your full body is visible in frame.');
-                setPhase('setup'); return;
+                clearTimeout(safetyTimer);
+                setError('Not enough frames. Record for at least 3 seconds with full body visible.');
+                setPhase('setup');
+                return;
             }
-            // Use real keypoints if available, otherwise send what we have
-            const kp = kpR.current.length > 0 ? kpR.current : framesR.current.map(() => Array(132).fill(0.1));
-            console.log(`Sending ${kp.length} keypoint frames to ML server`);
-            const res = await fetch(ML_URL + '/live/finish', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({exercise, all_keypoints: kp}),
-            });
+
+            const kp = kpR.current.length > 0
+                ? kpR.current
+                : framesR.current.map(() => Array(132).fill(0.1));
+
+            // Add request timeout via AbortController
+            const controller = new AbortController();
+            const reqTimeout  = setTimeout(() => controller.abort(), 12000);
+
+            let res: Response;
+            try {
+                res = await fetch(ML_URL + '/live/finish', {
+                    method:  'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body:    JSON.stringify({exercise, all_keypoints: kp}),
+                    signal:  controller.signal,
+                });
+                clearTimeout(reqTimeout);
+            } catch (fetchErr: any) {
+                clearTimeout(reqTimeout);
+                clearTimeout(safetyTimer);
+                if (fetchErr?.name === 'AbortError') {
+                    setError('Analysis took too long. Check your internet connection and try again.');
+                } else {
+                    setError('Could not reach ML server. Check connection and try again.');
+                }
+                setPhase('setup');
+                return;
+            }
+
+            clearTimeout(safetyTimer);
+
             if (res.ok) {
-                const d = await res.json();
-                setResult(d); setPhase('results');
-                // Save to backend
-                try {
-                    if (token) {
-                        const exId = EXERCISE_ID_MAP[exercise] || 1;
-                        await fetch(BACKEND_URL + '/api/v1/workouts/form-analysis', {
-                            method:'POST',
-                            headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-                            body: JSON.stringify({
-                                session_exercise_id: exId,
-                                exercise_id: exId,
-                                rep_number:0,
-                                form_status:d.overall_form||'unknown',
-                                confidence_score:d.confidence||0,
-                                errors_detected:d.body_part_issues?.map((i:any)=>i.body_part)||[],
-                                joint_angles:{}, feedback_given:d.feedback||'',
-                                keypoints_snapshot:null,
-                            }),
-                        });
-                    }
-                } catch(_) {}
+                let d: any = {};
+                try { d = await res.json(); } catch(_) {}
+
+                // Ensure result has all required fields
+                const safeResult = {
+                    overall_form:      d.overall_form    || 'uncertain',
+                    confidence:        d.confidence      || 0,
+                    feedback:          d.feedback        || 'Analysis complete.',
+                    body_part_issues:  Array.isArray(d.body_part_issues) ? d.body_part_issues : [],
+                    good_parts:        Array.isArray(d.good_parts)       ? d.good_parts       : [],
+                    total_reps:        d.total_reps      || 0,
+                };
+
+                setResult(safeResult);
+                setPhase('results');
+
+                // Save to backend (fire and forget - don't block results display)
+                if (token) {
+                    const exId = EXERCISE_ID_MAP[exercise] || 1;
+                    fetch(BACKEND_URL + '/api/v1/workouts/form-analysis', {
+                        method:  'POST',
+                        headers: {'Content-Type':'application/json','Authorization':'Bearer '+token},
+                        body: JSON.stringify({
+                            session_exercise_id: exId,
+                            exercise_id:         exId,
+                            rep_number:          0,
+                            form_status:         safeResult.overall_form,
+                            confidence_score:    safeResult.confidence,
+                            errors_detected:     safeResult.body_part_issues.map((i:any) => i.body_part || i),
+                            joint_angles:        {},
+                            feedback_given:      safeResult.feedback,
+                            keypoints_snapshot:  null,
+                        }),
+                    }).catch(() => {});
+                }
             } else {
-                const e = await res.json().catch(()=>({}));
-                setError(e.detail||'Analysis failed.'); setPhase('setup');
+                let errMsg = 'Analysis failed. Please try again.';
+                try {
+                    const e = await res.json();
+                    errMsg = e.detail || e.message || errMsg;
+                } catch(_) {}
+                setError(errMsg);
+                setPhase('setup');
             }
-        } catch(_) { setError('Connection error.'); setPhase('setup'); }
+        } catch (err: any) {
+            clearTimeout(safetyTimer);
+            setError('Unexpected error. Please try again.');
+            setPhase('setup');
+        }
     };
 
     const reset = () => {

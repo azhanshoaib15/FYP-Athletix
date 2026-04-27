@@ -225,25 +225,27 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
         };
     };
 
-    // Fetch profile for signup date + load persisted state
+    // Fetch profile for signup date + load persisted state + sync with backend
     useEffect(() => {
         const init = async () => {
             try {
-                // Get signup date from profile
-                const res = await fetch(`${API_URL}/api/v1/users/me/profile`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (res.ok) {
-                    const prof = await res.json();
+                const headers = { Authorization: `Bearer ${token}` };
+
+                // Fetch profile + progress records in parallel
+                const [profRes, progRes] = await Promise.all([
+                    fetch(`${API_URL}/api/v1/users/me/profile`, { headers }),
+                    fetch(`${API_URL}/api/v1/progress/?limit=30`, { headers }),
+                ]);
+
+                if (profRes.ok) {
+                    const prof   = await profRes.json();
                     const signup = new Date(prof.created_at);
                     setSignupDate(signup);
 
                     // Calculate current day index (0-based)
                     const daysSince = Math.floor((Date.now() - signup.getTime()) / (1000 * 60 * 60 * 24));
-                    const idx = daysSince % 7; // 0=Day1 ... 6=Day7
+                    const idx = daysSince % 7;
                     setCurrentDayIndex(idx);
-
-                    // Auto-expand today's day
                     setExpandedDay('Day ' + (idx + 1));
 
                     // Load persisted ticks for this cycle
@@ -252,8 +254,32 @@ export default function WorkoutScheduleScreen({ onNavigate }: WorkoutScheduleScr
                         AsyncStorage.getItem(ticksKey),
                         AsyncStorage.getItem(loggedKey),
                     ]);
+
+                    let loggedFromStorage: Record<string, boolean> = {};
                     if (savedTicks)  setTicked(JSON.parse(savedTicks));
-                    if (savedLogged) setLoggedDays(JSON.parse(savedLogged));
+                    if (savedLogged) loggedFromStorage = JSON.parse(savedLogged);
+
+                    // Also check backend progress records to mark logged days
+                    // even if AsyncStorage was cleared (e.g. app reinstall)
+                    if (progRes.ok) {
+                        const progData = await progRes.json();
+                        if (Array.isArray(progData)) {
+                            const cycle    = Math.floor(daysSince / 7);
+                            const cycleStart = new Date(signup.getTime() + cycle * 7 * 86400000);
+
+                            progData.forEach((p: any) => {
+                                if ((p.workouts_completed || 0) > 0) {
+                                    const logDate    = new Date(p.recorded_at);
+                                    const dayOffset  = Math.floor((logDate.getTime() - cycleStart.getTime()) / 86400000);
+                                    if (dayOffset >= 0 && dayOffset < 7) {
+                                        const dayKey = 'Day ' + (dayOffset + 1);
+                                        loggedFromStorage[dayKey] = true;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    setLoggedDays(loggedFromStorage);
                 }
             } catch (_) {}
         };

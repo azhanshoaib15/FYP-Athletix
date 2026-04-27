@@ -239,10 +239,19 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
     // Count workouts from BOTH sessions AND progress records with workouts logged
     const progressWkts   = progress.filter((p: any) => (p.workouts_completed || 0) > 0).length;
     const totalWorkouts  = sessions.length + progressWkts;
+    // Weekly calories burned
     const totalCalBurned = progress
         .filter((p: any) => {
             const diff = Math.floor((Date.now() - new Date(p.recorded_at).getTime()) / 86400000);
             return diff < 7;
+        })
+        .reduce((sum: number, p: any) => sum + (p.total_calories_burned || 0), 0);
+
+    // Today's calories burned (for macro adjustment)
+    const todayCalBurned = progress
+        .filter((p: any) => {
+            const diff = Math.floor((Date.now() - new Date(p.recorded_at).getTime()) / 86400000);
+            return diff < 1;
         })
         .reduce((sum: number, p: any) => sum + (p.total_calories_burned || 0), 0);
 
@@ -271,11 +280,13 @@ export default function ProgressScreen({ onNavigate }: { onNavigate: (screen: an
                 </View>
                 <View style={st.statCard}>
                     <Text style={st.statNum}>{streak}</Text>
-                    <Text style={st.statLbl}>Streak</Text>
+                    <Text style={st.statLbl}>Day Streak 🔥</Text>
+                    {streak > 0 && <Text style={{fontSize:9, color:'#888', marginTop:2}}>consecutive days</Text>}
                 </View>
                 <View style={st.statCard}>
                     <Text style={st.statNum}>{xp}</Text>
-                    <Text style={st.statLbl}>XP</Text>
+                    <Text style={st.statLbl}>XP Points ⭐</Text>
+                    {xp > 0 && <Text style={{fontSize:9, color:'#888', marginTop:2}}>earned total</Text>}
                 </View>
             </View>
 

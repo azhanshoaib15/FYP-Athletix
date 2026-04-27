@@ -138,14 +138,32 @@ async def create_progress_record(
     bf_val     = float(raw_bf)     if raw_bf     and 1  < float(raw_bf)     < 70  else None
 
     # ── Build record ─────────────────────────────────────────────────────────
-    # Calculate XP points
     workouts_done = getattr(data, 'workouts_completed', 0) or 0
     cal_burned    = getattr(data, 'total_calories_burned', 0.0) or 0.0
-    # XP: 10 per workout + 1 per 100 kcal + 5 bonus per streak day
-    new_xp = (workouts_done * 10) + int(cal_burned / 100) + (new_streak * 5)
-    # Add to previous XP total
+
+    # ── XP calculation ───────────────────────────────────────────────────────
+    # Get previous XP total (accumulates over lifetime)
     prev_xp = last.xp_points if last and last.xp_points else 0
-    total_xp = prev_xp + new_xp
+
+    # Only award XP if this is a NEW workout log (not just a weight log)
+    # Same-day weight-only logs don't add XP
+    last_dt_for_xp = None
+    if last and last.recorded_at:
+        last_dt_for_xp = last.recorded_at.replace(tzinfo=timezone.utc)             if last.recorded_at.tzinfo is None else last.recorded_at
+
+    is_new_day   = last_dt_for_xp is None or (datetime.now(timezone.utc).date() > last_dt_for_xp.date())
+    has_activity = workouts_done > 0 or cal_burned > 0
+
+    if has_activity:
+        # Award XP for workout completion + calories
+        earned_xp = (workouts_done * 10) + int(cal_burned / 100)
+        if is_new_day:
+            # Streak bonus only once per day
+            earned_xp += (new_streak * 5)
+        total_xp = prev_xp + earned_xp
+    else:
+        # Weight/BF only log — keep existing XP
+        total_xp = prev_xp
 
     record = ProgressRecord(
         user_id=user_id,
